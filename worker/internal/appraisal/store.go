@@ -16,6 +16,23 @@ type Store interface {
 	InsertCandidate(ctx context.Context, params InsertCandidateParams) (Candidate, error)
 	InsertResult(ctx context.Context, params InsertResultParams) (Result, error)
 	InsertPendingReadingWithOptions(ctx context.Context, params InsertPendingReadingWithOptionsParams) (string, error)
+	EnqueueResultForPvPEvaluation(ctx context.Context, appraisalResultID string, now time.Time) error
+	ClaimPvPEvaluationQueueItems(ctx context.Context, limit int, now time.Time) ([]PvPEvaluationQueueItem, error)
+	UpsertResultPvPEvaluations(
+		ctx context.Context,
+		appraisalResultID string,
+		evaluations []UpsertPvPEvaluationParams,
+		now time.Time,
+	) error
+	MarkPvPEvaluationQueueItemSucceeded(ctx context.Context, queueItemID string, now time.Time) (bool, error)
+	MarkPvPEvaluationQueueItemFailed(
+		ctx context.Context,
+		queueItemID string,
+		retryCount int,
+		lastError string,
+		nextRetryAt *time.Time,
+		now time.Time,
+	) (bool, error)
 }
 
 type sqliteStore struct {
@@ -436,6 +453,325 @@ INSERT INTO appraisal_pending_species_options(
 	return pendingReadingID, nil
 }
 
+func (s *sqliteStore) EnqueueResultForPvPEvaluation(
+	ctx context.Context,
+	appraisalResultID string,
+	now time.Time,
+) error {
+	if appraisalResultID == "" {
+		return fmt.Errorf("appraisalResultID is required")
+	}
+
+	queueID, err := newID()
+	if err != nil {
+		return err
+	}
+
+	createdAt := normalizeNow(now)
+	timestamp := createdAt.Format(time.RFC3339Nano)
+
+	const query = `
+INSERT OR IGNORE INTO appraisal_result_pvp_eval_queue(
+	id, appraisal_result_id, status, retry_count, last_error, locked, next_retry_at, created_at, updated_at
+) VALUES (?, ?, ?, 0, NULL, 0, NULL, ?, ?);`
+
+	if _, err := s.db.ExecContext(
+		ctx,
+		query,
+		queueID,
+		appraisalResultID,
+		PvPEvalQueueStatusPending,
+		timestamp,
+		timestamp,
+	); err != nil {
+		return fmt.Errorf("enqueue appraisal result pvp evaluation: %w", err)
+	}
+
+	return nil
+}
+
+func (s *sqliteStore) ClaimPvPEvaluationQueueItems(
+	ctx context.Context,
+	limit int,
+	now time.Time,
+) ([]PvPEvaluationQueueItem, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("limit must be greater than 0")
+	}
+
+	claimTime := normalizeNow(now)
+	claimTimestamp := claimTime.Format(time.RFC3339Nano)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin pvp eval claim tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	const selectQuery = `
+SELECT id, appraisal_result_id, status, retry_count, last_error, locked, next_retry_at, created_at, updated_at
+FROM appraisal_result_pvp_eval_queue
+WHERE locked = 0
+  AND status IN (?, ?)
+  AND (next_retry_at IS NULL OR next_retry_at <= ?)
+ORDER BY created_at ASC, id ASC
+LIMIT ?;`
+
+	rows, err := tx.QueryContext(
+		ctx,
+		selectQuery,
+		PvPEvalQueueStatusPending,
+		PvPEvalQueueStatusFailed,
+		claimTimestamp,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query pvp eval queue claim candidates: %w", err)
+	}
+
+	candidates := make([]PvPEvaluationQueueItem, 0, limit)
+	for rows.Next() {
+		var item PvPEvaluationQueueItem
+		var lastError sql.NullString
+		var lockedRaw int
+		var nextRetryAtRaw sql.NullString
+		var createdAtRaw string
+		var updatedAtRaw string
+
+		if err := rows.Scan(
+			&item.ID,
+			&item.AppraisalResultID,
+			&item.Status,
+			&item.RetryCount,
+			&lastError,
+			&lockedRaw,
+			&nextRetryAtRaw,
+			&createdAtRaw,
+			&updatedAtRaw,
+		); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan pvp eval queue claim candidate: %w", err)
+		}
+
+		createdAt, err := time.Parse(time.RFC3339Nano, createdAtRaw)
+		if err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("parse pvp eval queue created_at %q: %w", createdAtRaw, err)
+		}
+		updatedAt, err := time.Parse(time.RFC3339Nano, updatedAtRaw)
+		if err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("parse pvp eval queue updated_at %q: %w", updatedAtRaw, err)
+		}
+
+		item.CreatedAt = createdAt
+		item.UpdatedAt = updatedAt
+		item.Locked = lockedRaw == 1
+
+		if lastError.Valid {
+			value := lastError.String
+			item.LastError = &value
+		}
+		if nextRetryAtRaw.Valid {
+			nextRetryAt, err := time.Parse(time.RFC3339Nano, nextRetryAtRaw.String)
+			if err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("parse pvp eval queue next_retry_at %q: %w", nextRetryAtRaw.String, err)
+			}
+			item.NextRetryAt = &nextRetryAt
+		}
+
+		candidates = append(candidates, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("iterate pvp eval queue claim candidates: %w", err)
+	}
+	rows.Close()
+
+	const updateClaimQuery = `
+UPDATE appraisal_result_pvp_eval_queue
+SET status = ?, locked = 1, last_error = NULL, updated_at = ?
+WHERE id = ? AND locked = 0 AND status IN (?, ?);`
+
+	claimed := make([]PvPEvaluationQueueItem, 0, len(candidates))
+	for _, candidate := range candidates {
+		updated, err := rowsAffectedBool(tx.ExecContext(
+			ctx,
+			updateClaimQuery,
+			PvPEvalQueueStatusProcessing,
+			claimTimestamp,
+			candidate.ID,
+			PvPEvalQueueStatusPending,
+			PvPEvalQueueStatusFailed,
+		))
+		if err != nil {
+			return nil, fmt.Errorf("claim pvp eval queue item: %w", err)
+		}
+		if !updated {
+			continue
+		}
+
+		candidate.Status = PvPEvalQueueStatusProcessing
+		candidate.Locked = true
+		candidate.LastError = nil
+		candidate.UpdatedAt = claimTime
+		claimed = append(claimed, candidate)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit pvp eval claim tx: %w", err)
+	}
+
+	return claimed, nil
+}
+
+func (s *sqliteStore) UpsertResultPvPEvaluations(
+	ctx context.Context,
+	appraisalResultID string,
+	evaluations []UpsertPvPEvaluationParams,
+	now time.Time,
+) error {
+	if appraisalResultID == "" {
+		return fmt.Errorf("appraisalResultID is required")
+	}
+	if len(evaluations) == 0 {
+		return fmt.Errorf("evaluations are required")
+	}
+
+	defaultCreatedAt := normalizeNow(now)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin pvp evaluation upsert tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	const upsertQuery = `
+INSERT INTO appraisal_result_pvp_evaluations(
+	id, appraisal_result_id, max_cp, evaluated_species_id, best_level, best_cp,
+	stat_product, rank_position, percentage, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(appraisal_result_id, max_cp, evaluated_species_id) DO UPDATE SET
+	best_level = excluded.best_level,
+	best_cp = excluded.best_cp,
+	stat_product = excluded.stat_product,
+	rank_position = excluded.rank_position,
+	percentage = excluded.percentage;`
+
+	for _, evaluation := range evaluations {
+		if evaluation.MaxCP <= 0 {
+			return fmt.Errorf("maxCP must be positive")
+		}
+		if strings.TrimSpace(evaluation.EvaluatedSpeciesID) == "" {
+			return fmt.Errorf("evaluatedSpeciesID is required")
+		}
+		if evaluation.RankPosition <= 0 {
+			return fmt.Errorf("rankPosition must be greater than 0")
+		}
+
+		evaluationID := evaluation.ID
+		if evaluationID == "" {
+			generatedID, err := newID()
+			if err != nil {
+				return err
+			}
+			evaluationID = generatedID
+		}
+
+		createdAt := normalizeNow(evaluation.CreatedAt)
+		if evaluation.CreatedAt.IsZero() {
+			createdAt = defaultCreatedAt
+		}
+
+		if _, err := tx.ExecContext(
+			ctx,
+			upsertQuery,
+			evaluationID,
+			appraisalResultID,
+			evaluation.MaxCP,
+			strings.TrimSpace(evaluation.EvaluatedSpeciesID),
+			evaluation.BestLevel,
+			evaluation.BestCP,
+			evaluation.StatProduct,
+			evaluation.RankPosition,
+			evaluation.Percentage,
+			createdAt.Format(time.RFC3339Nano),
+		); err != nil {
+			return fmt.Errorf("upsert appraisal result pvp evaluation: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit pvp evaluation upsert tx: %w", err)
+	}
+
+	return nil
+}
+
+func (s *sqliteStore) MarkPvPEvaluationQueueItemSucceeded(
+	ctx context.Context,
+	queueItemID string,
+	now time.Time,
+) (bool, error) {
+	if queueItemID == "" {
+		return false, fmt.Errorf("queueItemID is required")
+	}
+
+	timestamp := normalizeNow(now).Format(time.RFC3339Nano)
+
+	return rowsAffectedBool(s.db.ExecContext(
+		ctx,
+		`UPDATE appraisal_result_pvp_eval_queue
+SET status = ?, locked = 0, last_error = NULL, next_retry_at = NULL, updated_at = ?
+WHERE id = ? AND status = ? AND locked = 1;`,
+		PvPEvalQueueStatusSucceeded,
+		timestamp,
+		queueItemID,
+		PvPEvalQueueStatusProcessing,
+	))
+}
+
+func (s *sqliteStore) MarkPvPEvaluationQueueItemFailed(
+	ctx context.Context,
+	queueItemID string,
+	retryCount int,
+	lastError string,
+	nextRetryAt *time.Time,
+	now time.Time,
+) (bool, error) {
+	if queueItemID == "" {
+		return false, fmt.Errorf("queueItemID is required")
+	}
+	if retryCount < 0 {
+		return false, fmt.Errorf("retryCount must be greater than or equal to 0")
+	}
+
+	updatedAt := normalizeNow(now)
+	updatedAtRaw := updatedAt.Format(time.RFC3339Nano)
+
+	var lastErrorValue *string
+	trimmedError := strings.TrimSpace(lastError)
+	if trimmedError != "" {
+		lastErrorValue = &trimmedError
+	}
+
+	return rowsAffectedBool(s.db.ExecContext(
+		ctx,
+		`UPDATE appraisal_result_pvp_eval_queue
+SET status = ?, retry_count = ?, last_error = ?, locked = 0, next_retry_at = ?, updated_at = ?
+WHERE id = ? AND status = ? AND locked = 1;`,
+		PvPEvalQueueStatusFailed,
+		retryCount,
+		nullableString(lastErrorValue),
+		nullableTimestamp(nextRetryAt),
+		updatedAtRaw,
+		queueItemID,
+		PvPEvalQueueStatusProcessing,
+	))
+}
+
 func normalizeNow(now time.Time) time.Time {
 	now = now.UTC()
 	if now.IsZero() {
@@ -478,6 +814,19 @@ func nullableTimestamp(value *time.Time) any {
 	}
 
 	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func rowsAffectedBool(result sql.Result, err error) (bool, error) {
+	if err != nil {
+		return false, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+
+	return rowsAffected > 0, nil
 }
 
 func isLocalDatabaseURL(databaseURL string) bool {

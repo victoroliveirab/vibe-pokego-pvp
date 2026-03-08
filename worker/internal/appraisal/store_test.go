@@ -342,6 +342,388 @@ ORDER BY option_rank ASC;`
 	}
 }
 
+func TestEnqueueResultForPvPEvaluationCreatesUniquePendingQueueRow(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.March, 8, 1, 0, 0, 0, time.UTC)
+
+	seedUploadAndJob(t, store.db, "upload-pvp-queue-1", "job-pvp-queue-1", "session-pvp-queue-1", now)
+	if _, err := store.InsertResult(ctx, InsertResultParams{
+		ID:                  "result-pvp-queue-1",
+		JobID:               "job-pvp-queue-1",
+		UploadID:            "upload-pvp-queue-1",
+		SessionID:           "session-pvp-queue-1",
+		SpeciesName:         "Bulbasaur",
+		CP:                  800,
+		HP:                  80,
+		PowerUpStardustCost: 2500,
+		IVAttack:            10,
+		IVDefense:           10,
+		IVStamina:           10,
+		LevelMethod:         LevelMethodUnknown,
+		SourceType:          SourceTypeImage,
+		CreatedAt:           now,
+	}); err != nil {
+		t.Fatalf("expected result insert to succeed, got: %v", err)
+	}
+
+	if err := store.EnqueueResultForPvPEvaluation(ctx, "result-pvp-queue-1", now); err != nil {
+		t.Fatalf("expected enqueue to succeed, got: %v", err)
+	}
+	if err := store.EnqueueResultForPvPEvaluation(ctx, "result-pvp-queue-1", now.Add(time.Minute)); err != nil {
+		t.Fatalf("expected duplicate enqueue to be ignored, got: %v", err)
+	}
+
+	assertRowCount(t, store.db, "appraisal_result_pvp_eval_queue", 1)
+
+	const query = `
+SELECT status, retry_count, last_error, locked, next_retry_at
+FROM appraisal_result_pvp_eval_queue
+WHERE appraisal_result_id = ?;`
+
+	var status string
+	var retryCount int
+	var lastError sql.NullString
+	var locked int
+	var nextRetryAt sql.NullString
+	if err := store.db.QueryRowContext(ctx, query, "result-pvp-queue-1").Scan(
+		&status,
+		&retryCount,
+		&lastError,
+		&locked,
+		&nextRetryAt,
+	); err != nil {
+		t.Fatalf("expected queue row query to succeed, got: %v", err)
+	}
+
+	if status != PvPEvalQueueStatusPending {
+		t.Fatalf("expected queue status %q, got %q", PvPEvalQueueStatusPending, status)
+	}
+	if retryCount != 0 {
+		t.Fatalf("expected retry_count 0, got %d", retryCount)
+	}
+	if lastError.Valid {
+		t.Fatalf("expected last_error NULL, got %#v", lastError)
+	}
+	if locked != 0 {
+		t.Fatalf("expected locked=0, got %d", locked)
+	}
+	if nextRetryAt.Valid {
+		t.Fatalf("expected next_retry_at NULL, got %#v", nextRetryAt)
+	}
+}
+
+func TestClaimPvPEvaluationQueueItemsClaimsEligibleRowsByLimit(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.March, 8, 2, 0, 0, 0, time.UTC)
+
+	for idx, resultID := range []string{"result-pvp-claim-1", "result-pvp-claim-2", "result-pvp-claim-3"} {
+		uploadID := fmt.Sprintf("upload-pvp-claim-%d", idx+1)
+		jobID := fmt.Sprintf("job-pvp-claim-%d", idx+1)
+		sessionID := fmt.Sprintf("session-pvp-claim-%d", idx+1)
+		seedUploadAndJob(t, store.db, uploadID, jobID, sessionID, now)
+
+		if _, err := store.InsertResult(ctx, InsertResultParams{
+			ID:                  resultID,
+			JobID:               jobID,
+			UploadID:            uploadID,
+			SessionID:           sessionID,
+			SpeciesName:         "Bulbasaur",
+			CP:                  700 + idx,
+			HP:                  70 + idx,
+			PowerUpStardustCost: 2500,
+			IVAttack:            10,
+			IVDefense:           10,
+			IVStamina:           10,
+			LevelMethod:         LevelMethodUnknown,
+			SourceType:          SourceTypeImage,
+			CreatedAt:           now,
+		}); err != nil {
+			t.Fatalf("expected result insert to succeed, got: %v", err)
+		}
+		if err := store.EnqueueResultForPvPEvaluation(ctx, resultID, now.Add(time.Duration(idx)*time.Second)); err != nil {
+			t.Fatalf("expected enqueue to succeed, got: %v", err)
+		}
+	}
+
+	futureRetryAt := now.Add(30 * time.Minute).Format(time.RFC3339Nano)
+	if _, err := store.db.ExecContext(
+		ctx,
+		`UPDATE appraisal_result_pvp_eval_queue
+SET status = ?, retry_count = 2, next_retry_at = ?
+WHERE appraisal_result_id = ?;`,
+		PvPEvalQueueStatusFailed,
+		futureRetryAt,
+		"result-pvp-claim-3",
+	); err != nil {
+		t.Fatalf("expected queue update to failed future to succeed, got: %v", err)
+	}
+
+	claimed, err := store.ClaimPvPEvaluationQueueItems(ctx, 2, now)
+	if err != nil {
+		t.Fatalf("expected claim to succeed, got: %v", err)
+	}
+	if len(claimed) != 2 {
+		t.Fatalf("expected 2 claimed items, got %d", len(claimed))
+	}
+
+	for _, item := range claimed {
+		if item.Status != PvPEvalQueueStatusProcessing {
+			t.Fatalf("expected claimed item status %q, got %q", PvPEvalQueueStatusProcessing, item.Status)
+		}
+		if !item.Locked {
+			t.Fatalf("expected claimed item to be locked, got %#v", item)
+		}
+	}
+
+	const query = `
+SELECT status, locked
+FROM appraisal_result_pvp_eval_queue
+WHERE appraisal_result_id = ?;`
+
+	var status string
+	var locked int
+	if err := store.db.QueryRowContext(ctx, query, "result-pvp-claim-3").Scan(&status, &locked); err != nil {
+		t.Fatalf("expected queue row query for unclaimed item to succeed, got: %v", err)
+	}
+	if status != PvPEvalQueueStatusFailed {
+		t.Fatalf("expected unclaimable row status %q, got %q", PvPEvalQueueStatusFailed, status)
+	}
+	if locked != 0 {
+		t.Fatalf("expected unclaimable row locked=0, got %d", locked)
+	}
+}
+
+func TestMarkPvPEvaluationQueueItemSucceededAndFailed(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.March, 8, 3, 0, 0, 0, time.UTC)
+
+	seedUploadAndJob(t, store.db, "upload-pvp-mark-1", "job-pvp-mark-1", "session-pvp-mark-1", now)
+	if _, err := store.InsertResult(ctx, InsertResultParams{
+		ID:                  "result-pvp-mark-1",
+		JobID:               "job-pvp-mark-1",
+		UploadID:            "upload-pvp-mark-1",
+		SessionID:           "session-pvp-mark-1",
+		SpeciesName:         "Bulbasaur",
+		CP:                  720,
+		HP:                  80,
+		PowerUpStardustCost: 2500,
+		IVAttack:            10,
+		IVDefense:           10,
+		IVStamina:           10,
+		LevelMethod:         LevelMethodUnknown,
+		SourceType:          SourceTypeImage,
+		CreatedAt:           now,
+	}); err != nil {
+		t.Fatalf("expected result insert to succeed, got: %v", err)
+	}
+	if err := store.EnqueueResultForPvPEvaluation(ctx, "result-pvp-mark-1", now); err != nil {
+		t.Fatalf("expected enqueue to succeed, got: %v", err)
+	}
+
+	claimed, err := store.ClaimPvPEvaluationQueueItems(ctx, 1, now)
+	if err != nil {
+		t.Fatalf("expected claim to succeed, got: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("expected one claimed queue row, got %d", len(claimed))
+	}
+
+	updated, err := store.MarkPvPEvaluationQueueItemSucceeded(ctx, claimed[0].ID, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("expected mark succeeded to succeed, got: %v", err)
+	}
+	if !updated {
+		t.Fatal("expected mark succeeded to update one row")
+	}
+
+	var status string
+	var locked int
+	if err := store.db.QueryRowContext(
+		ctx,
+		`SELECT status, locked FROM appraisal_result_pvp_eval_queue WHERE id = ?;`,
+		claimed[0].ID,
+	).Scan(&status, &locked); err != nil {
+		t.Fatalf("expected queue row query to succeed, got: %v", err)
+	}
+	if status != PvPEvalQueueStatusSucceeded {
+		t.Fatalf("expected status %q, got %q", PvPEvalQueueStatusSucceeded, status)
+	}
+	if locked != 0 {
+		t.Fatalf("expected locked=0, got %d", locked)
+	}
+
+	seedUploadAndJob(t, store.db, "upload-pvp-mark-2", "job-pvp-mark-2", "session-pvp-mark-2", now)
+	if _, err := store.InsertResult(ctx, InsertResultParams{
+		ID:                  "result-pvp-mark-2",
+		JobID:               "job-pvp-mark-2",
+		UploadID:            "upload-pvp-mark-2",
+		SessionID:           "session-pvp-mark-2",
+		SpeciesName:         "Ivysaur",
+		CP:                  1250,
+		HP:                  110,
+		PowerUpStardustCost: 3000,
+		IVAttack:            12,
+		IVDefense:           13,
+		IVStamina:           14,
+		LevelMethod:         LevelMethodUnknown,
+		SourceType:          SourceTypeImage,
+		CreatedAt:           now,
+	}); err != nil {
+		t.Fatalf("expected second result insert to succeed, got: %v", err)
+	}
+	if err := store.EnqueueResultForPvPEvaluation(ctx, "result-pvp-mark-2", now); err != nil {
+		t.Fatalf("expected second enqueue to succeed, got: %v", err)
+	}
+
+	claimed, err = store.ClaimPvPEvaluationQueueItems(ctx, 1, now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("expected second claim to succeed, got: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("expected one claimed queue row, got %d", len(claimed))
+	}
+
+	nextRetry := now.Add(10 * time.Minute)
+	updated, err = store.MarkPvPEvaluationQueueItemFailed(
+		ctx,
+		claimed[0].ID,
+		3,
+		"temporary failure",
+		&nextRetry,
+		now.Add(3*time.Minute),
+	)
+	if err != nil {
+		t.Fatalf("expected mark failed to succeed, got: %v", err)
+	}
+	if !updated {
+		t.Fatal("expected mark failed to update one row")
+	}
+
+	var retryCount int
+	var lastError sql.NullString
+	var nextRetryAtRaw sql.NullString
+	if err := store.db.QueryRowContext(
+		ctx,
+		`SELECT status, retry_count, last_error, locked, next_retry_at
+FROM appraisal_result_pvp_eval_queue
+WHERE id = ?;`,
+		claimed[0].ID,
+	).Scan(&status, &retryCount, &lastError, &locked, &nextRetryAtRaw); err != nil {
+		t.Fatalf("expected failed queue row query to succeed, got: %v", err)
+	}
+	if status != PvPEvalQueueStatusFailed {
+		t.Fatalf("expected failed status %q, got %q", PvPEvalQueueStatusFailed, status)
+	}
+	if retryCount != 3 {
+		t.Fatalf("expected retry_count 3, got %d", retryCount)
+	}
+	if !lastError.Valid || lastError.String != "temporary failure" {
+		t.Fatalf("expected last_error %q, got %#v", "temporary failure", lastError)
+	}
+	if locked != 0 {
+		t.Fatalf("expected locked=0 after failure, got %d", locked)
+	}
+	if !nextRetryAtRaw.Valid {
+		t.Fatal("expected next_retry_at to be set")
+	}
+}
+
+func TestUpsertResultPvPEvaluationsUpdatesExistingUniqueRow(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.March, 8, 4, 0, 0, 0, time.UTC)
+
+	seedUploadAndJob(t, store.db, "upload-pvp-upsert-1", "job-pvp-upsert-1", "session-pvp-upsert-1", now)
+	if _, err := store.InsertResult(ctx, InsertResultParams{
+		ID:                  "result-pvp-upsert-1",
+		JobID:               "job-pvp-upsert-1",
+		UploadID:            "upload-pvp-upsert-1",
+		SessionID:           "session-pvp-upsert-1",
+		SpeciesName:         "Ivysaur",
+		CP:                  1300,
+		HP:                  120,
+		PowerUpStardustCost: 3000,
+		IVAttack:            11,
+		IVDefense:           14,
+		IVStamina:           13,
+		LevelMethod:         LevelMethodUnknown,
+		SourceType:          SourceTypeImage,
+		CreatedAt:           now,
+	}); err != nil {
+		t.Fatalf("expected result insert to succeed, got: %v", err)
+	}
+
+	if err := store.UpsertResultPvPEvaluations(ctx, "result-pvp-upsert-1", []UpsertPvPEvaluationParams{
+		{
+			ID:                 "pvp-eval-1",
+			MaxCP:              1500,
+			EvaluatedSpeciesID: "ivysaur",
+			BestLevel:          36.5,
+			BestCP:             1497,
+			StatProduct:        1850.12,
+			RankPosition:       42,
+			Percentage:         97.21,
+			CreatedAt:          now,
+		},
+	}, now); err != nil {
+		t.Fatalf("expected first upsert to succeed, got: %v", err)
+	}
+
+	if err := store.UpsertResultPvPEvaluations(ctx, "result-pvp-upsert-1", []UpsertPvPEvaluationParams{
+		{
+			ID:                 "pvp-eval-2",
+			MaxCP:              1500,
+			EvaluatedSpeciesID: "ivysaur",
+			BestLevel:          37.0,
+			BestCP:             1499,
+			StatProduct:        1862.40,
+			RankPosition:       35,
+			Percentage:         98.31,
+			CreatedAt:          now.Add(time.Minute),
+		},
+	}, now.Add(time.Minute)); err != nil {
+		t.Fatalf("expected conflicting upsert to succeed, got: %v", err)
+	}
+
+	assertRowCount(t, store.db, "appraisal_result_pvp_evaluations", 1)
+
+	const query = `
+SELECT best_level, best_cp, stat_product, rank_position, percentage
+FROM appraisal_result_pvp_evaluations
+WHERE appraisal_result_id = ? AND max_cp = ? AND evaluated_species_id = ?;`
+
+	var bestLevel float64
+	var bestCP int
+	var statProduct float64
+	var rankPosition int
+	var percentage float64
+	if err := store.db.QueryRowContext(ctx, query, "result-pvp-upsert-1", 1500, "ivysaur").Scan(
+		&bestLevel,
+		&bestCP,
+		&statProduct,
+		&rankPosition,
+		&percentage,
+	); err != nil {
+		t.Fatalf("expected evaluation row query to succeed, got: %v", err)
+	}
+
+	if bestLevel != 37.0 || bestCP != 1499 {
+		t.Fatalf("expected updated best level/cp 37.0/1499, got %.1f/%d", bestLevel, bestCP)
+	}
+	if statProduct != 1862.40 {
+		t.Fatalf("expected updated stat_product 1862.40, got %.2f", statProduct)
+	}
+	if rankPosition != 35 {
+		t.Fatalf("expected updated rank_position 35, got %d", rankPosition)
+	}
+	if percentage != 98.31 {
+		t.Fatalf("expected updated percentage 98.31, got %.2f", percentage)
+	}
+}
+
 func newTestStore(t *testing.T) *sqliteStore {
 	t.Helper()
 
@@ -442,6 +824,35 @@ CREATE TABLE IF NOT EXISTS appraisal_results (
 	created_at TEXT NOT NULL,
 	FOREIGN KEY(job_id) REFERENCES jobs(id),
 	FOREIGN KEY(upload_id) REFERENCES uploads(id)
+);
+
+CREATE TABLE IF NOT EXISTS appraisal_result_pvp_evaluations (
+	id TEXT PRIMARY KEY,
+	appraisal_result_id TEXT NOT NULL,
+	max_cp INTEGER NOT NULL,
+	evaluated_species_id TEXT NOT NULL,
+	best_level REAL NOT NULL,
+	best_cp INTEGER NOT NULL,
+	stat_product REAL NOT NULL,
+	rank_position INTEGER NOT NULL,
+	percentage REAL NOT NULL,
+	created_at TEXT NOT NULL,
+	UNIQUE(appraisal_result_id, max_cp, evaluated_species_id),
+	FOREIGN KEY(appraisal_result_id) REFERENCES appraisal_results(id)
+);
+
+CREATE TABLE IF NOT EXISTS appraisal_result_pvp_eval_queue (
+	id TEXT PRIMARY KEY,
+	appraisal_result_id TEXT NOT NULL,
+	status TEXT NOT NULL,
+	retry_count INTEGER NOT NULL DEFAULT 0,
+	last_error TEXT NULL,
+	locked INTEGER NOT NULL DEFAULT 0,
+	next_retry_at TEXT NULL,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	UNIQUE(appraisal_result_id),
+	FOREIGN KEY(appraisal_result_id) REFERENCES appraisal_results(id)
 );
 
 CREATE TABLE IF NOT EXISTS appraisal_pending_readings (
@@ -545,7 +956,11 @@ CREATE INDEX IF NOT EXISTS idx_job_debug_jobs_session_id ON job_debug_jobs(sessi
 CREATE INDEX IF NOT EXISTS idx_job_debug_jobs_created_at ON job_debug_jobs(created_at);
 CREATE INDEX IF NOT EXISTS idx_job_debug_frames_job_id_frame_index ON job_debug_frames(job_id, frame_index);
 CREATE INDEX IF NOT EXISTS idx_job_debug_frames_job_id_frame_ts ON job_debug_frames(job_id, frame_timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_job_debug_frames_job_id_created_at ON job_debug_frames(job_id, created_at);`
+CREATE INDEX IF NOT EXISTS idx_job_debug_frames_job_id_created_at ON job_debug_frames(job_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_appraisal_result_pvp_evals_result_id ON appraisal_result_pvp_evaluations(appraisal_result_id);
+CREATE INDEX IF NOT EXISTS idx_appraisal_result_pvp_evals_species_id ON appraisal_result_pvp_evaluations(evaluated_species_id);
+CREATE INDEX IF NOT EXISTS idx_appraisal_result_pvp_eval_queue_status_next_retry ON appraisal_result_pvp_eval_queue(status, next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_appraisal_result_pvp_eval_queue_result_id ON appraisal_result_pvp_eval_queue(appraisal_result_id);`
 
 	if err := execSchemaStatements(context.Background(), db, schema); err != nil {
 		t.Fatalf("expected schema bootstrap to succeed, got: %v", err)

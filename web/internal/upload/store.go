@@ -211,6 +211,35 @@ CREATE TABLE IF NOT EXISTS appraisal_results (
 	FOREIGN KEY(upload_id) REFERENCES uploads(id)
 );
 
+CREATE TABLE IF NOT EXISTS appraisal_result_pvp_evaluations (
+	id TEXT PRIMARY KEY,
+	appraisal_result_id TEXT NOT NULL,
+	max_cp INTEGER NOT NULL,
+	evaluated_species_id TEXT NOT NULL,
+	best_level REAL NOT NULL,
+	best_cp INTEGER NOT NULL,
+	stat_product REAL NOT NULL,
+	rank_position INTEGER NOT NULL,
+	percentage REAL NOT NULL,
+	created_at TEXT NOT NULL,
+	UNIQUE(appraisal_result_id, max_cp, evaluated_species_id),
+	FOREIGN KEY(appraisal_result_id) REFERENCES appraisal_results(id)
+);
+
+CREATE TABLE IF NOT EXISTS appraisal_result_pvp_eval_queue (
+	id TEXT PRIMARY KEY,
+	appraisal_result_id TEXT NOT NULL,
+	status TEXT NOT NULL,
+	retry_count INTEGER NOT NULL DEFAULT 0,
+	last_error TEXT NULL,
+	locked INTEGER NOT NULL DEFAULT 0,
+	next_retry_at TEXT NULL,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	UNIQUE(appraisal_result_id),
+	FOREIGN KEY(appraisal_result_id) REFERENCES appraisal_results(id)
+);
+
 CREATE TABLE IF NOT EXISTS appraisal_pending_readings (
 	id TEXT PRIMARY KEY,
 	job_id TEXT NOT NULL,
@@ -316,6 +345,10 @@ CREATE INDEX IF NOT EXISTS idx_appraisal_candidates_session_id ON appraisal_cand
 CREATE INDEX IF NOT EXISTS idx_appraisal_results_job_id ON appraisal_results(job_id);
 CREATE INDEX IF NOT EXISTS idx_appraisal_results_upload_id ON appraisal_results(upload_id);
 CREATE INDEX IF NOT EXISTS idx_appraisal_results_session_id ON appraisal_results(session_id);
+CREATE INDEX IF NOT EXISTS idx_appraisal_result_pvp_evals_result_id ON appraisal_result_pvp_evaluations(appraisal_result_id);
+CREATE INDEX IF NOT EXISTS idx_appraisal_result_pvp_evals_species_id ON appraisal_result_pvp_evaluations(evaluated_species_id);
+CREATE INDEX IF NOT EXISTS idx_appraisal_result_pvp_eval_queue_status_next_retry ON appraisal_result_pvp_eval_queue(status, next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_appraisal_result_pvp_eval_queue_result_id ON appraisal_result_pvp_eval_queue(appraisal_result_id);
 CREATE INDEX IF NOT EXISTS idx_appraisal_pending_readings_job_id ON appraisal_pending_readings(job_id);
 CREATE INDEX IF NOT EXISTS idx_appraisal_pending_readings_session_id ON appraisal_pending_readings(session_id);
 CREATE INDEX IF NOT EXISTS idx_appraisal_pending_species_options_pending_reading_id ON appraisal_pending_species_options(pending_reading_id);
