@@ -4,6 +4,37 @@ Vibe PoGo Appraisal App is a full-stack tool that analyzes Pokemon GO appraisal 
 
 Production website: https://vibepogo.victoroliveira.com.br
 
+## Human Generated
+
+I created this project to experiment with some vibecode workflows. Don't take it too seriously.
+My only commitment is to not write any code in this repo, not even the rest of this document is written by me! 🤖❌⚠️✅🚀
+
+> I am absolutely right!
+
+### Problem Statement
+
+I don't want to pay for PokeGenie. I want to be able to quickly parse my Pokemon to select the best for PvP battles.
+My current way was 1. manually screenshotting my Pokemon 2. opening PokeGenie 3. reading screenshot 4. memorizing best candidates
+
+My ideal workflow is: 1. screen record my phone in Pokemon GO as I go through my list of potential PvP 2. feed the whole video to the system 3. let the system parse the images from the video and extract the different Pokemon 4. rank them automatically for me + consolidate my list of PvP Pokemon
+
+### Goals
+
+1. Experiment vibe code workflows
+2. Offer me a better experience of selecting my PvP teams
+
+### Roadmap
+
+- [ ] Add Litte/Great/Ultra League measures
+- [ ] Make pending Pokemon appear inline with the rest of Pokemon
+- [ ] Improve Pokemon List Design - Species / CP / IV (optional) / Best League / Grading for that League / Chevron to Open details
+- [ ] Add proper login
+- [ ] Improve logs (betterstack)
+- [ ] Add Pokemon Detailed view - Display level, stardust required to level up by league etc.
+- [ ] Add Team Builder for League view
+- [ ] Implement worker pool
+- [ ] Use a proper queue instead of sqlite
+
 ## What It Does
 
 - Accepts screenshot or video uploads from the browser UI.
@@ -103,22 +134,3 @@ make down           # stop local stack
 make prod-up        # start production compose with .env.production
 make prod-down      # stop production compose
 ```
-
-## Human Generated
-
-I created this project to experiment with some vibecode workflows. Don't take it too seriously.
-My only commitment is to not write any code in this repo! 🤖❌⚠️✅🚀
-
-> I am absolutely right!
-
-### Roadmap
-
-- [ ] Add Litte/Great/Ultra League measures
-- [ ] Make pending Pokemon appear inline with the rest of Pokemon
-- [ ] Improve Pokemon List Design - Species / CP / IV (optional) / Best League / Grading for that League / Chevron to Open details
-- [ ] Add proper login
-- [ ] Improve logs (betterstack)
-- [ ] Add Pokemon Detailed view - Display level, stardust required to level up by league etc.
-- [ ] Add Team Builder for League view
-- [ ] Implement worker pool
-- [ ] Use a proper queue instead of sqlite
