@@ -225,6 +225,19 @@ func (c Catalog) EntryForNormalized(normalized string) (Entry, bool) {
 	return entry, ok
 }
 
+// Levels returns a sorted copy of known playable levels.
+func (c Catalog) Levels() []float64 {
+	levels := make([]float64, len(c.levels))
+	copy(levels, c.levels)
+	return levels
+}
+
+// CPMultiplierForLevel returns the CPM value for a specific level.
+func (c Catalog) CPMultiplierForLevel(level float64) (float64, bool) {
+	cpm, ok := c.cpmByLevelKey[levelKey(level)]
+	return cpm, ok
+}
+
 // ComputeCPHP computes expected CP and HP for a species at an exact level+IV tuple.
 func (c Catalog) ComputeCPHP(entry Entry, level float64, ivAttack int, ivDefense int, ivStamina int) (int, int, bool) {
 	cpm, ok := c.cpmByLevelKey[levelKey(level)]
