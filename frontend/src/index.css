@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply m-0 min-h-screen bg-slate-950 text-slate-100 antialiased;
+  }
+}
+
+@layer components {
+  .status-panel {
+    @apply rounded-xl border p-4 shadow-inner shadow-slate-950/20;
+  }
+
+  .status-panel-title {
+    @apply text-sm font-semibold;
+  }
+}

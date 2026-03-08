@@ -1,0 +1,88 @@
+services:
+  web:
+    build:
+      context: ./web
+    restart: unless-stopped
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      UPLOAD_STORAGE_MODE: ${UPLOAD_STORAGE_MODE:-uploadthing}
+      UPLOAD_LOCAL_DIR: ${UPLOAD_LOCAL_DIR:-./testdata/uploads}
+      UPLOADTHING_TOKEN: ${UPLOADTHING_TOKEN:-}
+      UPLOADTHING_PREPARE_UPLOAD_URL: ${UPLOADTHING_PREPARE_UPLOAD_URL:-https://api.uploadthing.com/v7/prepareUpload}
+      UPLOADTHING_REQUEST_TIMEOUT_SECS: ${UPLOADTHING_REQUEST_TIMEOUT_SECS:-30}
+      WORKER_GAMEMASTER_PATH: ${WORKER_GAMEMASTER_PATH:-./internal/pokemon.json}
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8989}:${WEB_PORT:-8989}"
+    volumes:
+      - var_data:/app/var
+      - uploads_data:/app/testdata/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$${WEB_PORT}/healthz >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - appnet
+
+  worker:
+    build:
+      context: ./worker
+    restart: unless-stopped
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      UPLOAD_STORAGE_MODE: ${UPLOAD_STORAGE_MODE:-uploadthing}
+      UPLOAD_LOCAL_DIR: ${UPLOAD_LOCAL_DIR:-./testdata/uploads}
+      WORKER_UPLOADTHING_DOWNLOAD_TIMEOUT_SECS: ${WORKER_UPLOADTHING_DOWNLOAD_TIMEOUT_SECS:-30}
+      WORKER_UPLOADTHING_DOWNLOAD_RETRY_COUNT: ${WORKER_UPLOADTHING_DOWNLOAD_RETRY_COUNT:-2}
+      WORKER_UPLOADTHING_DOWNLOAD_TEMP_DIR: ${WORKER_UPLOADTHING_DOWNLOAD_TEMP_DIR:-}
+    ports:
+      - "127.0.0.1:${WORKER_HEALTH_PORT:-8081}:${WORKER_HEALTH_PORT:-8081}"
+    volumes:
+      - var_data:/app/var
+      - uploads_data:/app/testdata/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$${WORKER_HEALTH_PORT}/healthz >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - appnet
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    restart: unless-stopped
+    env_file:
+      - path: .env.production
+        required: false
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-4173}:5173"
+    depends_on:
+      web:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:5173/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - appnet
+
+volumes:
+  var_data:
+  uploads_data:
+
+networks:
+  appnet:
+    driver: bridge

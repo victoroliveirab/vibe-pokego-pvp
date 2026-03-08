@@ -1,0 +1,127 @@
+name: Deploy Hostinger VPS
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to deploy (branch, tag, or commit SHA). Leave empty to use current ref."
+        required: false
+        type: string
+
+concurrency:
+  group: deploy-hostinger-vps-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache-dependency-path: |
+            web/go.sum
+            worker/go.sum
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Test web
+        run: GOTOOLCHAIN=local go test ./...
+        working-directory: web
+
+      - name: Test worker
+        run: GOTOOLCHAIN=local go test ./...
+        working-directory: worker
+
+      - name: Test frontend
+        run: |
+          npm ci
+          npm test -- --run
+        working-directory: frontend
+
+  deploy:
+    name: Deploy to Hostinger VPS
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name != 'pull_request'
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+
+      - name: Setup SSH key and known hosts
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H -p "${SSH_PORT}" "${SSH_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Sync files to VPS
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_ACTION_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          ssh -p "${SSH_PORT}" "${SSH_USER}@${SSH_HOST}" "mkdir -p '${DEPLOY_PATH}'"
+          rsync -az --delete \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            --exclude '.env' \
+            --exclude '.env.production' \
+            --exclude 'node_modules/' \
+            --exclude 'frontend/node_modules/' \
+            --exclude 'frontend/dist/' \
+            --exclude 'tmp/' \
+            --exclude '.cache/' \
+            ./ "${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/"
+
+      - name: Deploy and run remote smoke checks
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_ACTION_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          ssh -p "${SSH_PORT}" "${SSH_USER}@${SSH_HOST}" "DEPLOY_PATH='${DEPLOY_PATH}' bash -se" <<'EOF'
+          set -euo pipefail
+          cd "${DEPLOY_PATH}"
+          test -f .env.production
+          docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+          ENV_FILE=.env.production \
+          COMPOSE_CMD='docker compose -f docker-compose.prod.yml --env-file .env.production' \
+          ./scripts/smoke/verify_stack.sh
+          EOF
+
+      - name: Verify public endpoints
+        run: |
+          set -euo pipefail
+          curl -fsS https://vibepogo.victoroliveira.com.br/ >/dev/null
+          curl -fsS https://vibepogo.victoroliveira.com.br/api/healthz >/dev/null

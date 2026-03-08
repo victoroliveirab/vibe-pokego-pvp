@@ -1,0 +1,8 @@
+{
+  "scenarioId": "session_creation",
+  "type": "session_creation",
+  "apiExpectation": {
+    "statusCode": 201,
+    "sessionIdFormat": "uuid_v4"
+  }
+}

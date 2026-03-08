@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "scenarioId": "image_valid_nidoqueen",
+      "kind": "image",
+      "path": "worker/testdata/images/valid__species-nidoqueen__cp-1377__hp-132__iv-10-13-15__lvl-200.jpg",
+      "sha256": "094d6d4ce7c4be90681653c424b1eee9987044b3e0c52c96381fe54337e6bb3a"
+    },
+    {
+      "scenarioId": "image_pending_darumaka",
+      "kind": "image",
+      "path": "worker/testdata/images/valid__species-darumaka__cp-980__hp-124__iv-7-15-15__lvl-250.png",
+      "sha256": "6c9cd93f0d2ccff383dbae14469b2f2dc39bce662c4f91ffe520aa717768e671"
+    },
+    {
+      "scenarioId": "video_valid_6s_9s",
+      "kind": "video",
+      "path": "worker/testdata/videos/valid_video_6s_9s.mp4",
+      "sha256": "af28679486d2f0f93de6560c598d5ac17652497e91c01437e780726c9bc07fc6"
+    },
+    {
+      "scenarioId": "video_no_appraisals_short",
+      "kind": "video",
+      "path": "worker/testdata/videos/valid_short_1s.mp4",
+      "sha256": "8cd5d0b5e3c00f5516f63f29b8e1951fe6b0963df084fc49682ba056f664c102"
+    }
+  ],
+  "expectedFixtures": [
+    "testdata/expected/e2e/session_creation.expected.json",
+    "testdata/expected/e2e/image_valid_nidoqueen.expected.json",
+    "testdata/expected/e2e/pending_user_dedup_terminal.expected.json",
+    "testdata/expected/e2e/video_valid_6s_9s.expected.json",
+    "testdata/expected/e2e/video_no_appraisals_short.expected.json",
+    "testdata/expected/e2e/error_unsupported_media_type.expected.json",
+    "testdata/expected/e2e/error_invalid_session.expected.json"
+  ]
+}

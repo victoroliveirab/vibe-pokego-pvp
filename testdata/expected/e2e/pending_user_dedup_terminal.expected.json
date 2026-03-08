@@ -1,0 +1,18 @@
+{
+  "scenarioId": "pending_user_dedup_terminal",
+  "type": "upload_flow",
+  "request": {
+    "mediaPath": "worker/testdata/images/valid__species-darumaka__cp-980__hp-124__iv-7-15-15__lvl-250.png",
+    "contentType": "image/png"
+  },
+  "jobExpectation": {
+    "terminalStatus": "PENDING_USER_DEDUP",
+    "errorCode": null,
+    "errorMessageContains": null
+  },
+  "pokemonExpectation": {
+    "minResults": 0,
+    "mustContain": [],
+    "mustNotContainSpecies": []
+  }
+}

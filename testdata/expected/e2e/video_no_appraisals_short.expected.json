@@ -1,0 +1,18 @@
+{
+  "scenarioId": "video_no_appraisals_short",
+  "type": "upload_flow",
+  "request": {
+    "mediaPath": "worker/testdata/videos/valid_short_1s.mp4",
+    "contentType": "video/mp4"
+  },
+  "jobExpectation": {
+    "terminalStatus": "FAILED",
+    "errorCode": "NO_APPRAISALS_FOUND",
+    "errorMessageContains": "No readable appraisals"
+  },
+  "pokemonExpectation": {
+    "minResults": 0,
+    "mustContain": [],
+    "mustNotContainSpecies": []
+  }
+}

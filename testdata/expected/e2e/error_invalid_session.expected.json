@@ -1,0 +1,13 @@
+{
+  "scenarioId": "error_invalid_session",
+  "type": "request_error",
+  "request": {
+    "method": "GET",
+    "path": "/pokemon",
+    "useValidSession": false
+  },
+  "apiExpectation": {
+    "statusCode": 401,
+    "errorCode": "INVALID_SESSION"
+  }
+}

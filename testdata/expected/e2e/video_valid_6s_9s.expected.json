@@ -1,0 +1,18 @@
+{
+  "scenarioId": "video_valid_6s_9s",
+  "type": "upload_flow",
+  "request": {
+    "mediaPath": "worker/testdata/videos/valid_video_6s_9s.mp4",
+    "contentType": "video/mp4"
+  },
+  "jobExpectation": {
+    "terminalStatus": "SUCCEEDED",
+    "errorCode": null,
+    "errorMessageContains": null
+  },
+  "pokemonExpectation": {
+    "minResults": 1,
+    "mustContain": [],
+    "mustNotContainSpecies": []
+  }
+}

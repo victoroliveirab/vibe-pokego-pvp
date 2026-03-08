@@ -1,0 +1,12 @@
+.codex/
+.env
+.env.production*
+node_modules/
+frontend/node_modules/
+frontend/dist/
+var/
+testdata/uploads/
+.DS_Store
+.cache/
+**/.gocache/
+tmp/

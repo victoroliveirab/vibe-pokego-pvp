@@ -1,0 +1,19 @@
+{
+  "scenarioId": "error_unsupported_media_type",
+  "type": "request_error",
+  "request": {
+    "method": "POST",
+    "path": "/uploads",
+    "useValidSession": true,
+    "multipartFile": {
+      "field": "file",
+      "filename": "unsupported.txt",
+      "contentType": "text/plain",
+      "content": "this is not an image or video"
+    }
+  },
+  "apiExpectation": {
+    "statusCode": 415,
+    "errorCode": "UNSUPPORTED_MEDIA_TYPE"
+  }
+}
