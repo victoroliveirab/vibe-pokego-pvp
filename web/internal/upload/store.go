@@ -1048,6 +1048,28 @@ INSERT INTO appraisal_results(
 		return PokemonResultRecord{}, fmt.Errorf("insert resolved appraisal result: %w", err)
 	}
 
+	queueID, err := newID()
+	if err != nil {
+		return PokemonResultRecord{}, err
+	}
+
+	const insertPVPEvaluationQueueQuery = `
+INSERT OR IGNORE INTO appraisal_result_pvp_eval_queue(
+	id, appraisal_result_id, status, retry_count, last_error, locked, next_retry_at, created_at, updated_at
+) VALUES (?, ?, ?, 0, NULL, 0, NULL, ?, ?);`
+
+	if _, err := tx.ExecContext(
+		ctx,
+		insertPVPEvaluationQueueQuery,
+		queueID,
+		resultID,
+		"PENDING",
+		nowRaw,
+		nowRaw,
+	); err != nil {
+		return PokemonResultRecord{}, fmt.Errorf("insert pvp evaluation queue row: %w", err)
+	}
+
 	if err := tx.Commit(); err != nil {
 		return PokemonResultRecord{}, fmt.Errorf("commit resolve pending tx: %w", err)
 	}

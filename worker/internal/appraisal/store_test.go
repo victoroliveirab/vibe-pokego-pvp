@@ -182,6 +182,67 @@ WHERE id = ?;`
 	}
 }
 
+func TestGetResultByIDReturnsPersistedResult(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.March, 2, 18, 7, 0, 0, time.UTC)
+	seedUploadAndJob(t, store.db, "upload-result-get-1", "job-result-get-1", "session-result-get-1", now)
+
+	levelEstimate := 20.5
+	levelConfidence := 0.88
+	inserted, err := store.InsertResult(ctx, InsertResultParams{
+		ID:                  "result-get-1",
+		JobID:               "job-result-get-1",
+		UploadID:            "upload-result-get-1",
+		SessionID:           "session-result-get-1",
+		SpeciesName:         "Venusaur",
+		CP:                  2480,
+		HP:                  155,
+		PowerUpStardustCost: 5000,
+		IVAttack:            13,
+		IVDefense:           14,
+		IVStamina:           15,
+		LevelEstimate:       &levelEstimate,
+		LevelConfidence:     &levelConfidence,
+		LevelMethod:         LevelMethodUnknown,
+		SourceType:          SourceTypeImage,
+		CreatedAt:           now,
+	})
+	if err != nil {
+		t.Fatalf("expected result insert to succeed, got: %v", err)
+	}
+
+	got, found, err := store.GetResultByID(ctx, inserted.ID)
+	if err != nil {
+		t.Fatalf("expected get result to succeed, got: %v", err)
+	}
+	if !found {
+		t.Fatal("expected result to be found")
+	}
+	if got.ID != inserted.ID || got.SpeciesName != inserted.SpeciesName {
+		t.Fatalf("expected fetched result identity to match inserted row, got %#v", got)
+	}
+	if got.LevelEstimate == nil || *got.LevelEstimate != levelEstimate {
+		t.Fatalf("expected level estimate %.1f, got %#v", levelEstimate, got.LevelEstimate)
+	}
+	if got.LevelConfidence == nil || *got.LevelConfidence != levelConfidence {
+		t.Fatalf("expected level confidence %.2f, got %#v", levelConfidence, got.LevelConfidence)
+	}
+}
+
+func TestGetResultByIDReturnsNotFound(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	_, found, err := store.GetResultByID(ctx, "missing-result")
+	if err != nil {
+		t.Fatalf("expected missing result lookup to succeed, got: %v", err)
+	}
+	if found {
+		t.Fatal("expected missing result lookup to return found=false")
+	}
+}
+
 func TestInsertCandidateCanPersistWithoutAcceptedResultInsert(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()

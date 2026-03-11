@@ -3,6 +3,7 @@ package appraisal
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ type Store interface {
 	Close() error
 	InsertCandidate(ctx context.Context, params InsertCandidateParams) (Candidate, error)
 	InsertResult(ctx context.Context, params InsertResultParams) (Result, error)
+	GetResultByID(ctx context.Context, resultID string) (Result, bool, error)
 	InsertPendingReadingWithOptions(ctx context.Context, params InsertPendingReadingWithOptionsParams) (string, error)
 	EnqueueResultForPvPEvaluation(ctx context.Context, appraisalResultID string, now time.Time) error
 	ClaimPvPEvaluationQueueItems(ctx context.Context, limit int, now time.Time) ([]PvPEvaluationQueueItem, error)
@@ -316,6 +318,70 @@ INSERT INTO appraisal_results(
 		ExtractionConfidence: params.ExtractionConfidence,
 		CreatedAt:            createdAt,
 	}, nil
+}
+
+func (s *sqliteStore) GetResultByID(ctx context.Context, resultID string) (Result, bool, error) {
+	if strings.TrimSpace(resultID) == "" {
+		return Result{}, false, fmt.Errorf("resultID is required")
+	}
+
+	const query = `
+SELECT id, job_id, upload_id, session_id, species_name, cp, hp, power_up_stardust_cost,
+       iv_attack, iv_defense, iv_stamina, level_estimate, level_confidence, level_method,
+       source_type, start_ms, end_ms, frame_timestamp_ms, extraction_confidence, created_at
+FROM appraisal_results
+WHERE id = ?;`
+
+	var row Result
+	var levelEstimate sql.NullFloat64
+	var levelConfidence sql.NullFloat64
+	var startMS sql.NullInt64
+	var endMS sql.NullInt64
+	var frameTimestampMS sql.NullInt64
+	var extractionConfidence sql.NullFloat64
+	var createdAtRaw string
+	if err := s.db.QueryRowContext(ctx, query, resultID).Scan(
+		&row.ID,
+		&row.JobID,
+		&row.UploadID,
+		&row.SessionID,
+		&row.SpeciesName,
+		&row.CP,
+		&row.HP,
+		&row.PowerUpStardustCost,
+		&row.IVAttack,
+		&row.IVDefense,
+		&row.IVStamina,
+		&levelEstimate,
+		&levelConfidence,
+		&row.LevelMethod,
+		&row.SourceType,
+		&startMS,
+		&endMS,
+		&frameTimestampMS,
+		&extractionConfidence,
+		&createdAtRaw,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Result{}, false, nil
+		}
+		return Result{}, false, fmt.Errorf("query appraisal result by id: %w", err)
+	}
+
+	createdAt, err := time.Parse(time.RFC3339Nano, createdAtRaw)
+	if err != nil {
+		return Result{}, false, fmt.Errorf("parse appraisal result created_at %q: %w", createdAtRaw, err)
+	}
+
+	row.LevelEstimate = nullableFloat64FromSQL(levelEstimate)
+	row.LevelConfidence = nullableFloat64FromSQL(levelConfidence)
+	row.StartMS = nullableInt64FromSQL(startMS)
+	row.EndMS = nullableInt64FromSQL(endMS)
+	row.FrameTimestampMS = nullableInt64FromSQL(frameTimestampMS)
+	row.ExtractionConfidence = nullableFloat64FromSQL(extractionConfidence)
+	row.CreatedAt = createdAt
+
+	return row, true, nil
 }
 
 func (s *sqliteStore) InsertPendingReadingWithOptions(
@@ -814,6 +880,22 @@ func nullableTimestamp(value *time.Time) any {
 	}
 
 	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func nullableInt64FromSQL(value sql.NullInt64) *int64 {
+	if !value.Valid {
+		return nil
+	}
+	copy := value.Int64
+	return &copy
+}
+
+func nullableFloat64FromSQL(value sql.NullFloat64) *float64 {
+	if !value.Valid {
+		return nil
+	}
+	copy := value.Float64
+	return &copy
 }
 
 func rowsAffectedBool(result sql.Result, err error) (bool, error) {

@@ -1113,6 +1113,7 @@ func TestResolvePendingReadingFinalizesResultAndLocksReading(t *testing.T) {
 	}
 
 	assertRowCount(t, store.db, "appraisal_results", "job_id", "job-a", 1)
+	assertRowCount(t, store.db, "appraisal_result_pvp_eval_queue", "appraisal_result_id", result.ID, 1)
 }
 
 func TestResolvePendingReadingReturnsLockedForAlreadyResolvedReading(t *testing.T) {

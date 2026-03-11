@@ -9,6 +9,7 @@ import (
 
 // AcceptedResultCandidate is a canonical appraisal candidate accepted for persistence.
 type AcceptedResultCandidate struct {
+	SpeciesID             string
 	SpeciesName           string
 	SpeciesNameNormalized string
 	CP                    int
@@ -80,6 +81,7 @@ func ValidateCandidate(parsed ParsedCandidate, catalog species.Catalog, levelHin
 		levelEstimate := inferredLevel.LevelEstimate
 		levelConfidence := inferredLevel.Confidence
 		accepted = append(accepted, AcceptedResultCandidate{
+			SpeciesID:             entry.SpeciesID,
 			SpeciesName:           entry.SpeciesName,
 			SpeciesNameNormalized: entry.SpeciesNormalized,
 			CP:                    cp,

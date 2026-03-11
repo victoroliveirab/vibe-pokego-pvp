@@ -12,9 +12,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/appraisal"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/config"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/jobqueue"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/ocr"
+	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/pvp"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/species"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/videoproc"
 )
@@ -46,6 +48,20 @@ func Run(cfg config.Config, storage config.StorageConfig) {
 		return
 	}
 	defer queueStore.Close()
+
+	appraisalStore, err := appraisal.NewSQLiteStore(databaseDSN)
+	if err != nil {
+		logger.Error("worker appraisal store initialization failed", "error", err, "database_url", cfg.DatabaseURL)
+		return
+	}
+	defer appraisalStore.Close()
+
+	evolutionGraph, err := pvp.LoadEvolutionGraphFromFile(cfg.GameMasterPath)
+	if err != nil {
+		logger.Error("worker evolution graph initialization failed", "error", err, "gamemaster_path", cfg.GameMasterPath)
+		return
+	}
+	pvpRunner := newPVPEvalRunner(appraisalStore, pvp.NewEvaluator(catalog), evolutionGraph, logger)
 
 	logger.Info(
 		"worker started",
@@ -112,6 +128,7 @@ func Run(cfg config.Config, storage config.StorageConfig) {
 				workerID,
 				leaseTimeout,
 				heartbeatInterval,
+				pvpRunner,
 				processor,
 				t,
 				time.Now,
@@ -127,12 +144,22 @@ func runQueueTick(
 	workerID string,
 	leaseTimeout time.Duration,
 	heartbeatInterval time.Duration,
+	pvpRunner pvpQueueRunner,
 	processor Processor,
 	tickTime time.Time,
 	nowFn func() time.Time,
 ) {
 	now := tickTime.UTC()
 	cutoff := now.Add(-leaseTimeout)
+
+	if pvpRunner != nil {
+		processedRows, err := pvpRunner.ProcessQueue(ctx, defaultPVPEvalQueueBatchSize, now)
+		if err != nil {
+			logger.Warn("failed to process pvp evaluation queue", "error", err)
+		} else if processedRows > 0 {
+			logger.Info("processed pvp evaluation queue", "count", processedRows)
+		}
+	}
 
 	expiredRows, err := queueStore.FailExpiredProcessingJobs(ctx, cutoff, now)
 	if err != nil {

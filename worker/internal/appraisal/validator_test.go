@@ -38,6 +38,9 @@ func TestValidateCandidateAcceptsCanonicalConsistentTupleAndInfersLevel(t *testi
 		t.Fatalf("expected 1 accepted candidate, got %d", len(decision.AcceptedResults))
 	}
 	accepted := decision.AcceptedResults[0]
+	if accepted.SpeciesID != "munna" {
+		t.Fatalf("expected species id %q, got %q", "munna", accepted.SpeciesID)
+	}
 	if accepted.SpeciesName != "Munna" {
 		t.Fatalf("expected species name %q, got %q", "Munna", accepted.SpeciesName)
 	}
