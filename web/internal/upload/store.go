@@ -699,7 +699,66 @@ ORDER BY created_at ASC, id ASC;`
 		return nil, fmt.Errorf("iterate pokemon results rows: %w", err)
 	}
 
+	if len(results) == 0 {
+		return results, nil
+	}
+
+	evaluationsByResultID, err := s.listPokemonResultMaxCPEvaluationsBySession(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range results {
+		resultEvaluations := evaluationsByResultID[results[i].ID]
+		results[i].MaxCPEvaluations = append([]PokemonResultMaxCPEvaluationRecord(nil), resultEvaluations...)
+	}
+
 	return results, nil
+}
+
+func (s *sqliteStore) listPokemonResultMaxCPEvaluationsBySession(
+	ctx context.Context,
+	sessionID string,
+) (map[string][]PokemonResultMaxCPEvaluationRecord, error) {
+	const query = `
+SELECT e.appraisal_result_id, e.max_cp, e.evaluated_species_id, e.best_level, e.best_cp,
+       e.stat_product, e.rank_position, e.percentage
+FROM appraisal_result_pvp_evaluations e
+JOIN appraisal_results r ON r.id = e.appraisal_result_id
+WHERE r.session_id = ?
+ORDER BY e.appraisal_result_id ASC, e.max_cp ASC, e.evaluated_species_id ASC;`
+
+	rows, err := s.db.QueryContext(ctx, query, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("query pokemon result max cp evaluations by session: %w", err)
+	}
+	defer rows.Close()
+
+	evaluationsByResultID := make(map[string][]PokemonResultMaxCPEvaluationRecord)
+	for rows.Next() {
+		var appraisalResultID string
+		var record PokemonResultMaxCPEvaluationRecord
+		if err := rows.Scan(
+			&appraisalResultID,
+			&record.MaxCP,
+			&record.EvaluatedSpeciesID,
+			&record.BestLevel,
+			&record.BestCP,
+			&record.StatProduct,
+			&record.Rank,
+			&record.Percentage,
+		); err != nil {
+			return nil, fmt.Errorf("scan pokemon result max cp evaluation row: %w", err)
+		}
+
+		evaluationsByResultID[appraisalResultID] = append(evaluationsByResultID[appraisalResultID], record)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pokemon result max cp evaluation rows: %w", err)
+	}
+
+	return evaluationsByResultID, nil
 }
 
 // ListPendingReadingsBySession returns unresolved pending readings with ranked options for one session.
