@@ -30,6 +30,26 @@ function createResult(overrides = {}) {
       frameTimestampMs: 13200,
     },
     confidence: 0.86,
+    maxCpEvaluations: [
+      {
+        maxCp: 1500,
+        evaluatedSpeciesId: "machoke",
+        bestLevel: 23.5,
+        bestCp: 1498,
+        statProduct: 1567890.12,
+        rank: 143,
+        percentage: 93.32,
+      },
+      {
+        maxCp: 2500,
+        evaluatedSpeciesId: "machamp",
+        bestLevel: 39,
+        bestCp: 2499,
+        statProduct: 2789012.34,
+        rank: 98,
+        percentage: 96.11,
+      },
+    ],
     createdAt: "2026-03-05T20:20:00Z",
     ...overrides,
   };
@@ -132,6 +152,7 @@ describe("pokemon results panel", () => {
                 frameTimestampMs: null,
               },
               confidence: null,
+              maxCpEvaluations: [],
               createdAt: "2026-03-05T20:26:00Z",
             }),
           ],
@@ -154,6 +175,49 @@ describe("pokemon results panel", () => {
     expect(
       screen.getAllByText("Image | Upload upload-2 | Job job-2 | Time N/A | Frame N/A").length,
     ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("Best fit: machamp @ 2500 CP (96.11%, rank 98)").length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText("Best fit: N/A").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Raw Max CP Evaluations (2)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("machoke").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1567890.12").length).toBeGreaterThan(0);
+  });
+
+  it("uses tie-breakers for best fit selection: percentage, then lower rank, then higher max cp", () => {
+    render(
+      <PokemonResultsPanel
+        {...createProps({
+          phase: pokemonResultsPhases.SUCCESS,
+          results: [
+            createResult({
+              maxCpEvaluations: [
+                {
+                  maxCp: 1500,
+                  evaluatedSpeciesId: "alpha",
+                  bestLevel: 20,
+                  bestCp: 1499,
+                  statProduct: 1000,
+                  rank: 42,
+                  percentage: 95.55,
+                },
+                {
+                  maxCp: 2500,
+                  evaluatedSpeciesId: "beta",
+                  bestLevel: 35,
+                  bestCp: 2499,
+                  statProduct: 1200,
+                  rank: 42,
+                  percentage: 95.55,
+                },
+              ],
+            }),
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getAllByText("Best fit: beta @ 2500 CP (95.55%, rank 42)").length).toBeGreaterThan(0);
   });
 
   it("renders pending species options and triggers resolve callback", () => {

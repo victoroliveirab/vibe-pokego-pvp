@@ -32,6 +32,17 @@ describe("pokemon results api", () => {
               frameTimestampMs: 13200,
             },
             confidence: 0.86,
+            maxCpEvaluations: [
+              {
+                maxCp: 1500,
+                evaluatedSpeciesId: "machoke",
+                bestLevel: 23.5,
+                bestCp: 1498,
+                statProduct: 1567890.12,
+                rank: 143,
+                percentage: 93.32,
+              },
+            ],
             createdAt: "2026-03-05T18:00:00Z",
           },
           {
@@ -94,6 +105,17 @@ describe("pokemon results api", () => {
             frameTimestampMs: 13200,
           },
           confidence: 0.86,
+          maxCpEvaluations: [
+            {
+              maxCp: 1500,
+              evaluatedSpeciesId: "machoke",
+              bestLevel: 23.5,
+              bestCp: 1498,
+              statProduct: 1567890.12,
+              rank: 143,
+              percentage: 93.32,
+            },
+          ],
           createdAt: "2026-03-05T18:00:00Z",
         },
         {
@@ -123,6 +145,7 @@ describe("pokemon results api", () => {
             frameTimestampMs: null,
           },
           confidence: null,
+          maxCpEvaluations: [],
           createdAt: "2026-03-05T18:00:01Z",
         },
       ],
@@ -185,10 +208,11 @@ describe("pokemon results api", () => {
                 },
                 frameTimestampMs: 13200,
               },
-              confidence: 0.86,
-              createdAt: "2026-03-05T18:00:00Z",
-            },
-          ],
+          confidence: 0.86,
+          createdAt: "2026-03-05T18:00:00Z",
+          maxCpEvaluations: [],
+        },
+      ],
         }),
       },
     });
@@ -306,6 +330,7 @@ describe("pokemon results api", () => {
 
     expect(payload.result.id).toBe("result-1");
     expect(payload.result.speciesName).toBe("Darumaka");
+    expect(payload.result.maxCpEvaluations).toEqual([]);
     expect(apiClient.request).toHaveBeenCalledWith(
       "/pokemon/pending-species/reading-1",
       expect.objectContaining({

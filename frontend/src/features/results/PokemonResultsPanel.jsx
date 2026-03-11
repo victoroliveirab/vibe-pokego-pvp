@@ -8,6 +8,22 @@ function formatOptionalNumber(value) {
   return String(value);
 }
 
+function formatPercentage(value) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "N/A";
+  }
+
+  return `${value.toFixed(2)}%`;
+}
+
+function formatDecimal(value) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "N/A";
+  }
+
+  return value.toFixed(2);
+}
+
 function formatConfidence(value) {
   if (typeof value !== "number" || Number.isNaN(value)) {
     return "N/A";
@@ -81,6 +97,84 @@ function formatIVs(ivs) {
   return `${attack}/${defense}/${stamina}`;
 }
 
+function normalizeMaxCPEvaluations(maxCPEvaluations) {
+  return Array.isArray(maxCPEvaluations) ? maxCPEvaluations : [];
+}
+
+function deriveBestFitEvaluation(maxCPEvaluations) {
+  const entries = normalizeMaxCPEvaluations(maxCPEvaluations);
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const sorted = [...entries].sort((left, right) => {
+    if (left.percentage !== right.percentage) {
+      return right.percentage - left.percentage;
+    }
+    if (left.rank !== right.rank) {
+      return left.rank - right.rank;
+    }
+    if (left.maxCp !== right.maxCp) {
+      return right.maxCp - left.maxCp;
+    }
+    return 0;
+  });
+
+  return sorted[0];
+}
+
+function formatBestFitSummary(maxCPEvaluations) {
+  const bestFit = deriveBestFitEvaluation(maxCPEvaluations);
+  if (!bestFit) {
+    return "Best fit: N/A";
+  }
+
+  return `Best fit: ${bestFit.evaluatedSpeciesId} @ ${bestFit.maxCp} CP (${formatPercentage(bestFit.percentage)}, rank ${bestFit.rank})`;
+}
+
+function MaxCPEvaluationsDetails({ maxCPEvaluations }) {
+  const entries = normalizeMaxCPEvaluations(maxCPEvaluations);
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return (
+    <details className="mt-3 rounded-lg border border-slate-800 bg-slate-900/60 p-2">
+      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-300">
+        Raw Max CP Evaluations ({entries.length})
+      </summary>
+      <div className="mt-2 overflow-x-auto">
+        <table className="min-w-full border-collapse text-left text-xs text-slate-200">
+          <thead className="text-slate-400">
+            <tr className="border-b border-slate-800">
+              <th className="px-2 py-1">Species</th>
+              <th className="px-2 py-1">Max CP</th>
+              <th className="px-2 py-1">Rank</th>
+              <th className="px-2 py-1">%</th>
+              <th className="px-2 py-1">Stat Product</th>
+              <th className="px-2 py-1">Best Level</th>
+              <th className="px-2 py-1">Best CP</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry) => (
+              <tr className="border-b border-slate-900" key={`${entry.evaluatedSpeciesId}-${entry.maxCp}`}>
+                <td className="px-2 py-1">{entry.evaluatedSpeciesId}</td>
+                <td className="px-2 py-1">{entry.maxCp}</td>
+                <td className="px-2 py-1">{entry.rank}</td>
+                <td className="px-2 py-1">{formatPercentage(entry.percentage)}</td>
+                <td className="px-2 py-1">{formatDecimal(entry.statProduct)}</td>
+                <td className="px-2 py-1">{formatDecimal(entry.bestLevel)}</td>
+                <td className="px-2 py-1">{entry.bestCp}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+}
+
 function formatPendingOptionHint(option) {
   if (!option || typeof option !== "object") {
     return "";
@@ -144,10 +238,13 @@ function PendingReadingCard({ onResolvePendingOption, reading, resolving }) {
 }
 
 function ResultCard({ result }) {
+  const maxCPEvaluations = normalizeMaxCPEvaluations(result.maxCpEvaluations);
+
   return (
     <article className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
       <h3 className="text-base font-semibold text-slate-100">{result.speciesName}</h3>
       <p className="mt-1 text-xs text-slate-400">Result ID: {result.id}</p>
+      <p className="mt-2 text-xs text-emerald-200">{formatBestFitSummary(maxCPEvaluations)}</p>
       <dl className="mt-3 grid grid-cols-2 gap-2 text-sm text-slate-200">
         <div>
           <dt className="text-xs uppercase tracking-wide text-slate-400">CP</dt>
@@ -182,6 +279,7 @@ function ResultCard({ result }) {
           <dd className="break-all">{result.createdAt}</dd>
         </div>
       </dl>
+      <MaxCPEvaluationsDetails maxCPEvaluations={maxCPEvaluations} />
     </article>
   );
 }
@@ -297,28 +395,37 @@ export default function PokemonResultsPanel({
                   <th className="px-2 py-2">Stardust</th>
                   <th className="px-2 py-2">IVs</th>
                   <th className="px-2 py-2">Level</th>
+                  <th className="px-2 py-2">Best Fit</th>
                   <th className="px-2 py-2">Source</th>
                   <th className="px-2 py-2">Confidence</th>
                   <th className="px-2 py-2">Created</th>
                 </tr>
               </thead>
               <tbody>
-                {normalizedResults.map((result) => (
-                  <tr className="border-b border-slate-900 align-top text-slate-200" key={result.id}>
-                    <td className="px-2 py-2">
-                      <p className="font-medium text-slate-100">{result.speciesName}</p>
-                      <p className="text-[11px] text-slate-500">{result.id}</p>
-                    </td>
-                    <td className="px-2 py-2">{result.cp}</td>
-                    <td className="px-2 py-2">{result.hp}</td>
-                    <td className="px-2 py-2">{result.powerUpStardustCost}</td>
-                    <td className="px-2 py-2">{formatIVs(result.ivs)}</td>
-                    <td className="px-2 py-2">{formatLevel(result.level)}</td>
-                    <td className="px-2 py-2 break-all">{formatSourceContext(result.source)}</td>
-                    <td className="px-2 py-2">{formatConfidence(result.confidence)}</td>
-                    <td className="px-2 py-2 break-all">{result.createdAt}</td>
-                  </tr>
-                ))}
+                {normalizedResults.map((result) => {
+                  const maxCPEvaluations = normalizeMaxCPEvaluations(result.maxCpEvaluations);
+
+                  return (
+                    <tr className="border-b border-slate-900 align-top text-slate-200" key={result.id}>
+                      <td className="px-2 py-2">
+                        <p className="font-medium text-slate-100">{result.speciesName}</p>
+                        <p className="text-[11px] text-slate-500">{result.id}</p>
+                      </td>
+                      <td className="px-2 py-2">{result.cp}</td>
+                      <td className="px-2 py-2">{result.hp}</td>
+                      <td className="px-2 py-2">{result.powerUpStardustCost}</td>
+                      <td className="px-2 py-2">{formatIVs(result.ivs)}</td>
+                      <td className="px-2 py-2">{formatLevel(result.level)}</td>
+                      <td className="px-2 py-2">
+                        <p className="text-emerald-200">{formatBestFitSummary(maxCPEvaluations)}</p>
+                        <MaxCPEvaluationsDetails maxCPEvaluations={maxCPEvaluations} />
+                      </td>
+                      <td className="px-2 py-2 break-all">{formatSourceContext(result.source)}</td>
+                      <td className="px-2 py-2">{formatConfidence(result.confidence)}</td>
+                      <td className="px-2 py-2 break-all">{result.createdAt}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
