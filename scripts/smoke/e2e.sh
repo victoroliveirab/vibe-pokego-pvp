@@ -18,6 +18,8 @@ DATABASE_PATH=${DATABASE_PATH:-./var/app.db}
 DATABASE_URL=${DATABASE_URL:-}
 QUEUE_IDLE_ATTEMPTS=${QUEUE_IDLE_ATTEMPTS:-180}
 QUEUE_IDLE_SLEEP_SECS=${QUEUE_IDLE_SLEEP_SECS:-2}
+PVP_EVAL_ATTEMPTS=${PVP_EVAL_ATTEMPTS:-120}
+PVP_EVAL_SLEEP_SECS=${PVP_EVAL_SLEEP_SECS:-1}
 SMOKE_RESET_NONTERMINAL_JOBS=${SMOKE_RESET_NONTERMINAL_JOBS:-1}
 MANIFEST_PATH="testdata/fixtures/e2e-fixture-manifest.json"
 
@@ -335,7 +337,7 @@ fetch_pokemon() {
   curl -fsS -H "X-Session-Id: ${session_id}" "${WEB_BASE_URL}/pokemon"
 }
 
-assert_pokemon_expectation() {
+check_pokemon_expectation() {
   local expected_file="$1"
   local pokemon_json="$2"
   local scenario_id
@@ -347,7 +349,8 @@ assert_pokemon_expectation() {
   actual_results="$(echo "${pokemon_json}" | jq '.results | length')"
 
   if [ "${actual_results}" -lt "${min_results}" ]; then
-    fail "scenario ${scenario_id}: expected at least ${min_results} pokemon results, got ${actual_results}"
+    echo "scenario ${scenario_id}: expected at least ${min_results} pokemon results, got ${actual_results}"
+    return 1
   fi
 
   while IFS= read -r species; do
@@ -356,7 +359,8 @@ assert_pokemon_expectation() {
     fi
 
     if echo "${pokemon_json}" | jq -e --arg species "${species}" 'any(.results[]?; .speciesName == $species)' >/dev/null; then
-      fail "scenario ${scenario_id}: did not expect species '${species}' in /pokemon results"
+      echo "scenario ${scenario_id}: did not expect species '${species}' in /pokemon results"
+      return 1
     fi
   done < <(jq -r '.pokemonExpectation.mustNotContainSpecies[]? // empty' "${expected_file}")
 
@@ -366,18 +370,104 @@ assert_pokemon_expectation() {
     fi
 
     if ! echo "${pokemon_json}" | jq -e --argjson expected "${expected_entry}" '
+      def eval_match($want; $actual):
+        (($want.maxCp? // null) == null or $actual.maxCp == $want.maxCp)
+        and (($want.evaluatedSpeciesId? // null) == null or $actual.evaluatedSpeciesId == $want.evaluatedSpeciesId)
+        and (($want.rank? // null) == null or $actual.rank == $want.rank)
+        and (($want.rankMin? // null) == null or $actual.rank >= $want.rankMin)
+        and (($want.rankMax? // null) == null or $actual.rank <= $want.rankMax)
+        and (($want.percentageMin? // null) == null or $actual.percentage >= $want.percentageMin)
+        and (($want.percentageMax? // null) == null or $actual.percentage <= $want.percentageMax)
+        and (($want.bestCp? // null) == null or $actual.bestCp == $want.bestCp)
+        and (($want.bestLevel? // null) == null or $actual.bestLevel == $want.bestLevel)
+        and (($want.bestLevelMin? // null) == null or $actual.bestLevel >= $want.bestLevelMin)
+        and (($want.bestLevelMax? // null) == null or $actual.bestLevel <= $want.bestLevelMax)
+        and (($want.statProduct? // null) == null or $actual.statProduct == $want.statProduct)
+        and (($want.statProductMin? // null) == null or $actual.statProduct >= $want.statProductMin)
+        and (($want.statProductMax? // null) == null or $actual.statProduct <= $want.statProductMax);
+
       any(.results[]?;
-        .speciesName == $expected.speciesName
-        and .cp == $expected.cp
-        and .hp == $expected.hp
-        and .ivs.attack == $expected.ivs.attack
-        and .ivs.defense == $expected.ivs.defense
-        and .ivs.stamina == $expected.ivs.stamina
+        . as $result
+        | $result.speciesName == $expected.speciesName
+        and $result.cp == $expected.cp
+        and $result.hp == $expected.hp
+        and $result.ivs.attack == $expected.ivs.attack
+        and $result.ivs.defense == $expected.ivs.defense
+        and $result.ivs.stamina == $expected.ivs.stamina
+        and (($expected.maxCpEvaluationsMinCount // 0) <= (($result.maxCpEvaluations // []) | length))
+        and all(($expected.maxCpEvaluationsMustContain // [])[]?;
+          . as $want
+          | any(($result.maxCpEvaluations // [])[]?; eval_match($want; .))
+        )
       )
     ' >/dev/null; then
-      fail "scenario ${scenario_id}: expected pokemon entry not found in /pokemon"
+      echo "scenario ${scenario_id}: expected pokemon entry not found in /pokemon"
+      echo "entry: ${expected_entry}"
+      return 1
     fi
   done < <(jq -c '.pokemonExpectation.mustContain[]? // empty' "${expected_file}")
+
+  return 0
+}
+
+assert_pokemon_expectation() {
+  local expected_file="$1"
+  local pokemon_json="$2"
+
+  local reason
+  if ! reason="$(check_pokemon_expectation "${expected_file}" "${pokemon_json}")"; then
+    fail "${reason}"
+  fi
+}
+
+has_pvp_expectations() {
+  local expected_file="$1"
+  jq -e '
+    any(.pokemonExpectation.mustContain[]?; ((.maxCpEvaluationsMinCount // 0) > 0) or (((.maxCpEvaluationsMustContain // []) | length) > 0))
+  ' "${expected_file}" >/dev/null
+}
+
+wait_for_session_pvp_queue_completion() {
+  local session_id="$1"
+  local expected_file="$2"
+  local scenario_id="$3"
+
+  if ! has_pvp_expectations "${expected_file}"; then
+    return
+  fi
+
+  if ! command -v sqlite3 >/dev/null 2>&1; then
+    echo "sqlite3 not found; skipping pvp queue completion wait for scenario ${scenario_id}."
+    return
+  fi
+  if [ ! -f "${DATABASE_PATH}" ]; then
+    echo "database not found at ${DATABASE_PATH}; skipping pvp queue completion wait for scenario ${scenario_id}."
+    return
+  fi
+
+  local attempt total_results remaining
+  for attempt in $(seq 1 "${PVP_EVAL_ATTEMPTS}"); do
+    total_results="$(sqlite3 -cmd '.timeout 5000' "${DATABASE_PATH}" \
+      "SELECT COUNT(*) FROM appraisal_results WHERE session_id = '${session_id}';" 2>/dev/null | awk 'NR==1 {print $1}')"
+    total_results="${total_results:-0}"
+
+    if [ "${total_results}" = "0" ]; then
+      return
+    fi
+
+    remaining="$(sqlite3 -cmd '.timeout 5000' "${DATABASE_PATH}" \
+      "SELECT COUNT(*) FROM appraisal_result_pvp_eval_queue q JOIN appraisal_results r ON r.id = q.appraisal_result_id WHERE r.session_id = '${session_id}' AND q.status != 'SUCCEEDED';" 2>/dev/null | awk 'NR==1 {print $1}')"
+    remaining="${remaining:-0}"
+
+    if [ "${remaining}" = "0" ]; then
+      return
+    fi
+
+    echo "Waiting for session PvP queue completion... scenario=${scenario_id} remaining=${remaining} (attempt ${attempt}/${PVP_EVAL_ATTEMPTS})"
+    sleep "${PVP_EVAL_SLEEP_SECS}"
+  done
+
+  fail "scenario ${scenario_id}: timed out waiting for session PvP queue completion"
 }
 
 run_session_creation_scenario() {
@@ -421,6 +511,8 @@ run_upload_flow_scenario() {
   local terminal_job_json
   terminal_job_json="$(poll_job_terminal "${session_id}" "${job_id}" "${scenario_id}")"
   assert_job_expectation "${expected_file}" "${terminal_job_json}"
+
+  wait_for_session_pvp_queue_completion "${session_id}" "${expected_file}" "${scenario_id}"
 
   local pokemon_json
   pokemon_json="$(fetch_pokemon "${session_id}")"
