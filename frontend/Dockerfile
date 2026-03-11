@@ -8,8 +8,7 @@ RUN npm ci
 COPY . .
 # Vite reads VITE_* at build time. Inject API base during image build.
 ARG VITE_API_BASE_URL=/api
-ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
-RUN npm run build
+RUN VITE_API_BASE_URL="${VITE_API_BASE_URL}" npm run build
 
 EXPOSE 5173
 
