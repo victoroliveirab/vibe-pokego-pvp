@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { pokemonResultsPhases } from "./pokemon-results-state";
 
 const leagueTabs = [
@@ -479,7 +479,7 @@ function PendingReadingCard({ isDebugMode, onResolvePendingOption, reading, reso
   );
 }
 
-function ResultCard({ isDebugMode, result }) {
+function ResultCard({ deleting, isDebugMode, onRequestDeleteResult, result }) {
   const maxCPEvaluations = normalizeMaxCPEvaluations(result.maxCpEvaluations);
   const leagueBreakdown = buildLeagueBreakdown(maxCPEvaluations);
   const defaultLeague = selectDefaultLeagueTab(leagueBreakdown.byLeague);
@@ -490,9 +490,22 @@ function ResultCard({ isDebugMode, result }) {
 
   return (
     <article className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-base font-semibold text-slate-100">{result.speciesName}</h3>
-        <TierChip ariaLabel={`Best tier for card ${result.speciesName}: ${bestTier}`} tier={bestTier} />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-base font-semibold text-slate-100">{result.speciesName}</h3>
+          <TierChip ariaLabel={`Best tier for card ${result.speciesName}: ${bestTier}`} tier={bestTier} />
+        </div>
+        <button
+          aria-label={`Delete ${result.speciesName}`}
+          className="min-h-10 rounded-lg border border-rose-300/40 px-3 py-2 text-xs font-semibold text-rose-100 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={deleting}
+          onClick={() => {
+            onRequestDeleteResult(result);
+          }}
+          type="button"
+        >
+          {deleting ? "Deleting..." : "Delete"}
+        </button>
       </div>
       {isDebugMode ? <p className="mt-1 text-xs text-slate-400">Result ID: {result.id}</p> : null}
       {isDebugMode ? <p className="mt-2 text-xs text-emerald-200">{formatBestFitSummary(maxCPEvaluations)}</p> : null}
@@ -568,12 +581,97 @@ function ResultCard({ isDebugMode, result }) {
   );
 }
 
+function DeleteResultDialog({
+  error,
+  isDeleting = false,
+  isOpen = false,
+  onCancel,
+  onConfirm,
+  speciesName = "this result",
+}) {
+  const cancelButtonRef = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    cancelButtonRef.current?.focus();
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape" && !isDeleting) {
+        onCancel();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isDeleting, isOpen, onCancel]);
+
+  if (!isOpen) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4"
+      onClick={(event) => {
+        if (event.target === event.currentTarget && !isDeleting) {
+          onCancel();
+        }
+      }}
+      role="dialog"
+    >
+      <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl shadow-slate-950/70">
+        <h3 className="text-lg font-semibold text-slate-50">Delete result?</h3>
+        <p className="mt-2 text-sm text-slate-300">
+          Delete <span className="font-semibold text-slate-100">{speciesName}</span>? This hides the accepted appraisal
+          from future lists.
+        </p>
+        {error && error.message ? (
+          <p className="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-100" role="alert">
+            {error.message}
+          </p>
+        ) : null}
+        <div className="mt-5 flex justify-end gap-3">
+          <button
+            className="min-h-10 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isDeleting}
+            onClick={onCancel}
+            ref={cancelButtonRef}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            className="min-h-10 rounded-lg border border-rose-300/40 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isDeleting}
+            onClick={onConfirm}
+            type="button"
+          >
+            {isDeleting ? "Deleting..." : "Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PokemonResultsPanel({
+  deleteConfirmation = null,
+  deletingResultIds = [],
   error,
   isDebugMode = false,
   lastFetchedAt,
+  onCancelDeleteResult = () => { },
+  onConfirmDeleteResult = () => { },
+  onRequestDeleteResult = () => { },
   onRetry,
   onResolvePendingOption = () => { },
+  pendingDeleteError = null,
   pendingReadings = [],
   phase,
   pendingResolveError = null,
@@ -582,11 +680,15 @@ export default function PokemonResultsPanel({
 }) {
   const normalizedResults = Array.isArray(results) ? results : [];
   const normalizedPendingReadings = Array.isArray(pendingReadings) ? pendingReadings : [];
+  const deletingResultIDSet = new Set(Array.isArray(deletingResultIds) ? deletingResultIds : []);
   const resolvingReadingIDSet = new Set(Array.isArray(resolvingReadingIds) ? resolvingReadingIds : []);
   const hasResults = normalizedResults.length > 0;
   const hasPendingReadings = normalizedPendingReadings.length > 0;
   const isLoading = phase === pokemonResultsPhases.LOADING;
   const isError = phase === pokemonResultsPhases.ERROR;
+  const deleteConfirmationState = deleteConfirmation && typeof deleteConfirmation === "object" ? deleteConfirmation : null;
+  const isDeleteDialogOpen = Boolean(deleteConfirmationState?.isOpen);
+  const isDeleteInFlight = deleteConfirmationState ? deletingResultIDSet.has(deleteConfirmationState.resultId) : false;
   const [expandedResultIDSet, setExpandedResultIDSet] = useState(() => new Set());
   const [rowActiveLeagueByID, setRowActiveLeagueByID] = useState({});
 
@@ -669,7 +771,13 @@ export default function PokemonResultsPanel({
 
           <div className="grid gap-3 md:hidden">
             {normalizedResults.map((result) => (
-              <ResultCard isDebugMode={isDebugMode} key={result.id} result={result} />
+              <ResultCard
+                deleting={deletingResultIDSet.has(result.id)}
+                isDebugMode={isDebugMode}
+                key={result.id}
+                onRequestDeleteResult={onRequestDeleteResult}
+                result={result}
+              />
             ))}
           </div>
 
@@ -688,6 +796,7 @@ export default function PokemonResultsPanel({
                   <th className="px-2 py-2">Source</th>
                   <th className="px-2 py-2">Confidence</th>
                   <th className="px-2 py-2">Created</th>
+                  <th className="px-2 py-2">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -758,11 +867,24 @@ export default function PokemonResultsPanel({
                         <td className="px-2 py-2 break-all">{formatSourceContext(result.source, { isDebugMode })}</td>
                         <td className="px-2 py-2">{formatConfidence(result.confidence)}</td>
                         <td className="px-2 py-2 break-all">{result.createdAt}</td>
+                        <td className="px-2 py-2">
+                          <button
+                            aria-label={`Delete ${result.speciesName}`}
+                            className="min-h-9 rounded-md border border-rose-300/40 px-3 py-2 font-semibold text-rose-100 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={deletingResultIDSet.has(result.id)}
+                            onClick={() => {
+                              onRequestDeleteResult(result);
+                            }}
+                            type="button"
+                          >
+                            {deletingResultIDSet.has(result.id) ? "Deleting..." : "Delete"}
+                          </button>
+                        </td>
                       </tr>
 
                       {isExpanded ? (
                         <tr className="border-b border-slate-900 bg-slate-900/40" id={`league-breakdown-${result.id}`}>
-                          <td className="px-2 pb-3" colSpan={11}>
+                          <td className="px-2 pb-3" colSpan={12}>
                             <LeagueBreakdownPanel
                               activeLeague={activeLeague}
                               byLeague={leagueBreakdown.byLeague}
@@ -785,6 +907,15 @@ export default function PokemonResultsPanel({
           </div>
         </div>
       ) : null}
+
+      <DeleteResultDialog
+        error={pendingDeleteError}
+        isDeleting={isDeleteInFlight}
+        isOpen={isDeleteDialogOpen}
+        onCancel={onCancelDeleteResult}
+        onConfirm={onConfirmDeleteResult}
+        speciesName={deleteConfirmationState?.speciesName || "this result"}
+      />
     </section>
   );
 }

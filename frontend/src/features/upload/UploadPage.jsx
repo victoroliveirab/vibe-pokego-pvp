@@ -69,6 +69,13 @@ export default function UploadPage({
   const [isDebugMode, setIsDebugMode] = useState(false);
   const [resolvingReadingIds, setResolvingReadingIds] = useState([]);
   const [pendingResolveError, setPendingResolveError] = useState(null);
+  const [deletingResultIds, setDeletingResultIds] = useState([]);
+  const [pendingDeleteError, setPendingDeleteError] = useState(null);
+  const [deleteModalState, setDeleteModalState] = useState({
+    isOpen: false,
+    resultId: "",
+    speciesName: "",
+  });
   const { sessionId, isLoading, error: sessionError } = useSessionHook();
   const pokemonResultsRequestIdRef = useRef(0);
   const lastSessionPokemonFetchRef = useRef("");
@@ -152,6 +159,13 @@ export default function UploadPage({
       lastJobPokemonFetchKeyRef.current = "";
       setResolvingReadingIds([]);
       setPendingResolveError(null);
+      setDeletingResultIds([]);
+      setPendingDeleteError(null);
+      setDeleteModalState({
+        isOpen: false,
+        resultId: "",
+        speciesName: "",
+      });
       dispatchPokemonResults({ type: "reset" });
       return;
     }
@@ -465,6 +479,90 @@ export default function UploadPage({
     [pokemonResultsApi, refreshPokemonResults, state.sessionId],
   );
 
+  const handleRequestDeleteResult = useCallback((result) => {
+    const normalizedResultID = typeof result?.id === "string" ? result.id.trim() : "";
+    const speciesName =
+      typeof result?.speciesName === "string" && result.speciesName.trim().length > 0
+        ? result.speciesName.trim()
+        : "this result";
+
+    if (!normalizedResultID) {
+      setPendingDeleteError({
+        code: "INVALID_REQUEST",
+        message: "Could not delete this result because its ID is missing.",
+        debugMessage: "Missing result id when opening delete confirmation.",
+      });
+      return;
+    }
+
+    setPendingDeleteError(null);
+    setDeleteModalState({
+      isOpen: true,
+      resultId: normalizedResultID,
+      speciesName,
+    });
+  }, []);
+
+  const handleCancelDeleteResult = useCallback(() => {
+    setPendingDeleteError(null);
+    setDeleteModalState((current) => {
+      if (deletingResultIds.includes(current.resultId)) {
+        return current;
+      }
+
+      return {
+        isOpen: false,
+        resultId: "",
+        speciesName: "",
+      };
+    });
+  }, [deletingResultIds]);
+
+  const handleConfirmDeleteResult = useCallback(async () => {
+    const normalizedSessionID = typeof state.sessionId === "string" ? state.sessionId.trim() : "";
+    if (!normalizedSessionID) {
+      setPendingDeleteError({
+        code: "INVALID_SESSION",
+        message: "Your session expired. We can try again.",
+        debugMessage: "Session id was missing when attempting result delete.",
+      });
+      return;
+    }
+
+    const normalizedResultID = deleteModalState.resultId.trim();
+    if (!normalizedResultID) {
+      setPendingDeleteError({
+        code: "INVALID_REQUEST",
+        message: "Could not delete this result because the request was incomplete.",
+        debugMessage: "Missing resultId in delete modal state.",
+      });
+      return;
+    }
+
+    setPendingDeleteError(null);
+    setDeletingResultIds((current) => (current.includes(normalizedResultID) ? current : [...current, normalizedResultID]));
+
+    try {
+      await pokemonResultsApi.deletePokemonResult({
+        sessionId: normalizedSessionID,
+        resultId: normalizedResultID,
+      });
+      setDeleteModalState({
+        isOpen: false,
+        resultId: "",
+        speciesName: "",
+      });
+      await refreshPokemonResults({
+        sessionId: normalizedSessionID,
+        preserveItems: false,
+      });
+    } catch (error) {
+      setPendingDeleteError(normalizePokemonResultsError(error));
+    } finally {
+      setDeletingResultIds((current) => current.filter((id) => id !== normalizedResultID));
+    }
+  }, [deleteModalState.resultId, pokemonResultsApi, refreshPokemonResults, state.sessionId]);
+
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
       <div className="mx-auto flex w-full max-w-md flex-col gap-6 px-4 pb-10 pt-8 sm:max-w-xl sm:px-6">
@@ -544,10 +642,16 @@ export default function UploadPage({
           </div>
 
           <PokemonResultsPanel
+            deleteConfirmation={deleteModalState.isOpen ? deleteModalState : null}
+            deletingResultIds={deletingResultIds}
             error={pokemonResultsState.error}
             lastFetchedAt={pokemonResultsState.lastFetchedAt}
+            onCancelDeleteResult={handleCancelDeleteResult}
+            onConfirmDeleteResult={handleConfirmDeleteResult}
+            onRequestDeleteResult={handleRequestDeleteResult}
             onRetry={handlePokemonResultsRetry}
             onResolvePendingOption={handleResolvePendingOption}
+            pendingDeleteError={pendingDeleteError}
             pendingReadings={pokemonResultsState.pendingItems}
             pendingResolveError={pendingResolveError}
             phase={pokemonResultsState.phase}

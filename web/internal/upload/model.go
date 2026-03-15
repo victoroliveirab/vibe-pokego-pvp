@@ -20,6 +20,7 @@ const (
 
 var ErrJobNotFound = errors.New("job not found")
 var ErrJobRetryNotAllowed = errors.New("job retry not allowed")
+var ErrPokemonResultNotFound = errors.New("pokemon result not found")
 var ErrPendingReadingNotFound = errors.New("pending reading not found")
 var ErrPendingReadingLocked = errors.New("pending reading locked")
 var ErrPendingOptionNotFound = errors.New("pending option not found")

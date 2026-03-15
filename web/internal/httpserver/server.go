@@ -39,6 +39,7 @@ func New(cfg config.Config, storage config.StorageConfig) (*http.Server, error) 
 	jobsHandler := newJobStatusHandler(uploadStore)
 	retryHandler := newJobRetryHandler(uploadStore, time.Now)
 	pokemonHandler := newPokemonResultsHandler(uploadStore)
+	deletePokemonHandler := newPokemonDeleteHandler(uploadStore, time.Now)
 	pendingSpeciesHandler := newPokemonPendingSpeciesHandler(uploadStore)
 	pendingSpeciesResolveHandler := newPokemonPendingSpeciesResolveHandler(uploadStore, time.Now)
 
@@ -62,6 +63,7 @@ func New(cfg config.Config, storage config.StorageConfig) (*http.Server, error) 
 	mux.Handle("/jobs/{jobId}", withSessionValidation(sessionStore, time.Now, jobsHandler))
 	mux.Handle("/jobs/{jobId}/retry", withSessionValidation(sessionStore, time.Now, retryHandler))
 	mux.Handle("/pokemon", withSessionValidation(sessionStore, time.Now, pokemonHandler))
+	mux.Handle("/pokemon/{resultId}", withSessionValidation(sessionStore, time.Now, deletePokemonHandler))
 	mux.Handle("/pokemon/pending-species", withSessionValidation(sessionStore, time.Now, pendingSpeciesHandler))
 	mux.Handle(
 		"/pokemon/pending-species/{readingId}",

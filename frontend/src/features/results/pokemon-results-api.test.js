@@ -340,4 +340,42 @@ describe("pokemon results api", () => {
       }),
     );
   });
+
+  it("soft deletes one accepted result", async () => {
+    const apiClient = {
+      request: vi.fn().mockResolvedValue(null),
+    };
+
+    const pokemonResultsApi = createPokemonResultsApi({ apiClient });
+    await pokemonResultsApi.deletePokemonResult({
+      sessionId: "session-1",
+      resultId: "result-1",
+    });
+
+    expect(apiClient.request).toHaveBeenCalledWith(
+      "/pokemon/result-1",
+      expect.objectContaining({
+        method: "DELETE",
+        requiresSession: true,
+        sessionId: "session-1",
+      }),
+    );
+  });
+
+  it("throws INVALID_RESPONSE when delete result id is missing", async () => {
+    const pokemonResultsApi = createPokemonResultsApi({
+      apiClient: {
+        request: vi.fn(),
+      },
+    });
+
+    await expect(
+      pokemonResultsApi.deletePokemonResult({
+        sessionId: "session-1",
+        resultId: " ",
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+    });
+  });
 });

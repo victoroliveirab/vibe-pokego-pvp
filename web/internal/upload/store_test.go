@@ -45,6 +45,59 @@ func TestSQLiteStoreBootstrapsUploadAndJobSchema(t *testing.T) {
 	assertSQLiteObjectExists(t, store.db, "index", "idx_job_debug_frames_job_id_frame_index")
 	assertSQLiteObjectExists(t, store.db, "index", "idx_job_debug_frames_job_id_frame_ts")
 	assertSQLiteObjectExists(t, store.db, "index", "idx_job_debug_frames_job_id_created_at")
+	assertSQLiteColumnExists(t, store.db, "appraisal_results", "deleted_at")
+}
+
+func TestSQLiteStoreBootstrapAddsDeletedAtColumnToExistingAppraisalResultsTable(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legacy-upload.db")
+	db, err := sql.Open("libsql", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("expected legacy db open to succeed, got %v", err)
+	}
+
+	const legacySchema = `
+CREATE TABLE appraisal_results (
+	id TEXT PRIMARY KEY,
+	job_id TEXT NOT NULL,
+	upload_id TEXT NOT NULL,
+	session_id TEXT NOT NULL,
+	species_name TEXT NOT NULL,
+	cp INTEGER NOT NULL,
+	hp INTEGER NOT NULL,
+	power_up_stardust_cost INTEGER NOT NULL,
+	iv_attack INTEGER NOT NULL,
+	iv_defense INTEGER NOT NULL,
+	iv_stamina INTEGER NOT NULL,
+	level_estimate REAL NULL,
+	level_confidence REAL NULL,
+	level_method TEXT NOT NULL,
+	source_type TEXT NOT NULL,
+	start_ms INTEGER NULL,
+	end_ms INTEGER NULL,
+	frame_timestamp_ms INTEGER NULL,
+	extraction_confidence REAL NULL,
+	created_at TEXT NOT NULL
+);`
+	if _, err := db.ExecContext(context.Background(), legacySchema); err != nil {
+		_ = db.Close()
+		t.Fatalf("expected legacy schema create to succeed, got %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("expected legacy db close to succeed, got %v", err)
+	}
+
+	store, err := NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("expected sqlite store to initialize from legacy schema, got %v", err)
+	}
+
+	sqliteStore, ok := store.(*sqliteStore)
+	if !ok {
+		t.Fatalf("expected *sqliteStore, got %T", store)
+	}
+	defer sqliteStore.db.Close()
+
+	assertSQLiteColumnExists(t, sqliteStore.db, "appraisal_results", "deleted_at")
 }
 
 func TestCreateUploadAndQueuedJobCreatesBothRowsWithQueuedDefaults(t *testing.T) {
@@ -938,6 +991,150 @@ func TestListPokemonResultsBySessionReturnsEmptyForUnknownSession(t *testing.T) 
 	}
 }
 
+func TestSoftDeletePokemonResultMarksDeletedAndExcludesItFromResults(t *testing.T) {
+	store, _ := newTestSQLiteStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.March, 5, 10, 0, 0, 0, time.UTC)
+	sessionID := "session-a"
+
+	seedUploadRow(t, store.db, "upload-1", sessionID, now)
+	seedJobRow(t, store.db, seededJobRow{
+		ID:        "job-1",
+		UploadID:  "upload-1",
+		SessionID: sessionID,
+		Status:    JobStatusSucceeded,
+		Progress:  100,
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	seedAppraisalResultRow(t, store.db, seededAppraisalResultRow{
+		ID:                  "result-1",
+		JobID:               "job-1",
+		UploadID:            "upload-1",
+		SessionID:           sessionID,
+		SpeciesName:         "Machop",
+		CP:                  512,
+		HP:                  64,
+		PowerUpStardustCost: 2500,
+		IVAttack:            12,
+		IVDefense:           15,
+		IVStamina:           13,
+		LevelMethod:         "UNKNOWN",
+		SourceType:          "IMAGE",
+		CreatedAt:           now,
+	})
+	seedPvPEvaluationRow(t, store.db, seededPvPEvaluationRow{
+		ID:                 "eval-1",
+		AppraisalResultID:  "result-1",
+		MaxCP:              1500,
+		EvaluatedSpeciesID: "machoke",
+		BestLevel:          23.5,
+		BestCP:             1498,
+		StatProduct:        1567890.12,
+		RankPosition:       143,
+		Percentage:         93.32,
+		CreatedAt:          now,
+	})
+
+	later := now.Add(time.Second)
+	seedUploadRow(t, store.db, "upload-2", sessionID, later)
+	seedJobRow(t, store.db, seededJobRow{
+		ID:        "job-2",
+		UploadID:  "upload-2",
+		SessionID: sessionID,
+		Status:    JobStatusSucceeded,
+		Progress:  100,
+		CreatedAt: later,
+		UpdatedAt: later,
+	})
+	seedAppraisalResultRow(t, store.db, seededAppraisalResultRow{
+		ID:                  "result-2",
+		JobID:               "job-2",
+		UploadID:            "upload-2",
+		SessionID:           sessionID,
+		SpeciesName:         "Pikachu",
+		CP:                  410,
+		HP:                  64,
+		PowerUpStardustCost: 3000,
+		IVAttack:            10,
+		IVDefense:           12,
+		IVStamina:           11,
+		LevelMethod:         "UNKNOWN",
+		SourceType:          "IMAGE",
+		CreatedAt:           later,
+	})
+
+	deleteAt := later.Add(time.Minute)
+	if err := store.SoftDeletePokemonResult(ctx, "result-1", sessionID, deleteAt); err != nil {
+		t.Fatalf("expected soft delete to succeed, got %v", err)
+	}
+
+	var deletedAtRaw sql.NullString
+	if err := store.db.QueryRowContext(ctx, `SELECT deleted_at FROM appraisal_results WHERE id = ?;`, "result-1").Scan(&deletedAtRaw); err != nil {
+		t.Fatalf("expected deleted_at query to succeed, got %v", err)
+	}
+	if !deletedAtRaw.Valid || deletedAtRaw.String != deleteAt.UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("expected deleted_at %q, got %#v", deleteAt.UTC().Format(time.RFC3339Nano), deletedAtRaw)
+	}
+
+	results, err := store.ListPokemonResultsBySession(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("expected list pokemon results to succeed, got %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 remaining result, got %d", len(results))
+	}
+	if results[0].ID != "result-2" {
+		t.Fatalf("expected remaining result %q, got %q", "result-2", results[0].ID)
+	}
+}
+
+func TestSoftDeletePokemonResultReturnsNotFoundForUnknownSessionOrDeletedRow(t *testing.T) {
+	store, _ := newTestSQLiteStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.March, 5, 11, 0, 0, 0, time.UTC)
+	sessionID := "session-a"
+
+	seedUploadRow(t, store.db, "upload-1", sessionID, now)
+	seedJobRow(t, store.db, seededJobRow{
+		ID:        "job-1",
+		UploadID:  "upload-1",
+		SessionID: sessionID,
+		Status:    JobStatusSucceeded,
+		Progress:  100,
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	seedAppraisalResultRow(t, store.db, seededAppraisalResultRow{
+		ID:                  "result-1",
+		JobID:               "job-1",
+		UploadID:            "upload-1",
+		SessionID:           sessionID,
+		SpeciesName:         "Machop",
+		CP:                  512,
+		HP:                  64,
+		PowerUpStardustCost: 2500,
+		IVAttack:            12,
+		IVDefense:           15,
+		IVStamina:           13,
+		LevelMethod:         "UNKNOWN",
+		SourceType:          "IMAGE",
+		CreatedAt:           now,
+	})
+
+	if err := store.SoftDeletePokemonResult(ctx, "result-1", "session-b", now); !errors.Is(err, ErrPokemonResultNotFound) {
+		t.Fatalf("expected ErrPokemonResultNotFound for wrong session, got %v", err)
+	}
+
+	if err := store.SoftDeletePokemonResult(ctx, "result-1", sessionID, now); err != nil {
+		t.Fatalf("expected first soft delete to succeed, got %v", err)
+	}
+
+	if err := store.SoftDeletePokemonResult(ctx, "result-1", sessionID, now.Add(time.Minute)); !errors.Is(err, ErrPokemonResultNotFound) {
+		t.Fatalf("expected ErrPokemonResultNotFound for already deleted row, got %v", err)
+	}
+}
+
 func TestListPendingReadingsBySessionReturnsSessionScopedReadingsWithRankedOptions(t *testing.T) {
 	store, _ := newTestSQLiteStore(t)
 	ctx := context.Background()
@@ -1349,6 +1546,36 @@ WHERE type = ? AND name = ?;`
 	if count != 1 {
 		t.Fatalf("expected sqlite %s %q to exist, count=%d", objectType, objectName, count)
 	}
+}
+
+func assertSQLiteColumnExists(t *testing.T, db *sql.DB, tableName string, columnName string) {
+	t.Helper()
+
+	rows, err := db.QueryContext(context.Background(), "PRAGMA table_info("+tableName+");")
+	if err != nil {
+		t.Fatalf("expected table info query to succeed: %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name string
+		var columnType string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			t.Fatalf("expected table info scan to succeed: %v", err)
+		}
+		if name == columnName {
+			return
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		t.Fatalf("expected table info rows to succeed: %v", err)
+	}
+	t.Fatalf("expected sqlite column %s.%s to exist", tableName, columnName)
 }
 
 func assertRowCount(t *testing.T, db *sql.DB, table, column, value string, expected int) {

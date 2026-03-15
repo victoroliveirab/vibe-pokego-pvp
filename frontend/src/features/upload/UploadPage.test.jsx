@@ -13,6 +13,7 @@ function createPokemonResultsApi({ getPokemonResults } = {}) {
   return {
     getPokemonResults: getPokemonResults || vi.fn().mockResolvedValue({ results: [] }),
     getPendingSpeciesReadings: vi.fn().mockResolvedValue({ readings: [] }),
+    deletePokemonResult: vi.fn().mockResolvedValue(null),
     resolvePendingSpeciesReading: vi.fn().mockResolvedValue({
       result: createPokemonResult(),
     }),
@@ -752,6 +753,84 @@ describe("upload page job monitoring", () => {
     await waitFor(() => {
       expect(screen.queryByText("Pending Species Confirmation")).toBeNull();
       expect(screen.getAllByText("Darumaka").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("soft deletes an accepted result and refetches results", async () => {
+    const pokemonResultsApi = createPokemonResultsApi({
+      getPokemonResults: vi
+        .fn()
+        .mockResolvedValueOnce({ results: [createPokemonResult()] })
+        .mockResolvedValueOnce({ results: [] }),
+    });
+    pokemonResultsApi.getPendingSpeciesReadings = vi
+      .fn()
+      .mockResolvedValueOnce({ readings: [] })
+      .mockResolvedValueOnce({ readings: [] });
+
+    render(
+      <UploadPage
+        jobApi={{ getJobStatus: vi.fn() }}
+        pokemonResultsApi={pokemonResultsApi}
+        uploadApi={{ submitUpload: vi.fn() }}
+        useSessionHook={createSessionHook()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Machop").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete Machop" })[0]);
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(pokemonResultsApi.deletePokemonResult).toHaveBeenCalledWith({
+        sessionId: "session-1",
+        resultId: "result-1",
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByText("Machop")).toBeNull();
+    });
+  });
+
+  it("shows delete errors and keeps confirmation modal open", async () => {
+    const pokemonResultsApi = createPokemonResultsApi({
+      getPokemonResults: vi.fn().mockResolvedValue({ results: [createPokemonResult()] }),
+    });
+    pokemonResultsApi.deletePokemonResult = vi.fn().mockRejectedValue({
+      code: "INTERNAL_ERROR",
+      message: "Delete failed.",
+    });
+
+    render(
+      <UploadPage
+        jobApi={{ getJobStatus: vi.fn() }}
+        pokemonResultsApi={pokemonResultsApi}
+        uploadApi={{ submitUpload: vi.fn() }}
+        useSessionHook={createSessionHook()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Machop").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete Machop" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(pokemonResultsApi.deletePokemonResult).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("dialog")).toBeTruthy();
+      expect(screen.getByText("Delete failed.")).toBeTruthy();
     });
   });
 });
