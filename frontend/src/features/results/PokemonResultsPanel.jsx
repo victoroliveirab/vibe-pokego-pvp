@@ -1,4 +1,11 @@
+import { Fragment, useState } from "react";
 import { pokemonResultsPhases } from "./pokemon-results-state";
+
+const leagueTabs = [
+  { key: "little", label: "Little" },
+  { key: "great", label: "Great" },
+  { key: "ultra", label: "Ultra" },
+];
 
 function formatOptionalNumber(value) {
   if (typeof value !== "number" || Number.isNaN(value)) {
@@ -101,6 +108,150 @@ function normalizeMaxCPEvaluations(maxCPEvaluations) {
   return Array.isArray(maxCPEvaluations) ? maxCPEvaluations : [];
 }
 
+function isValidRank(rank) {
+  return typeof rank === "number" && !Number.isNaN(rank) && rank > 0;
+}
+
+function rankToTier(rank) {
+  if (!isValidRank(rank)) {
+    return "F";
+  }
+
+  if (rank <= 10) {
+    return "S";
+  }
+  if (rank <= 50) {
+    return "A";
+  }
+  if (rank <= 100) {
+    return "B";
+  }
+  if (rank <= 200) {
+    return "C";
+  }
+  if (rank <= 400) {
+    return "D";
+  }
+  return "F";
+}
+
+function tierChipClasses(tier) {
+  if (tier === "S") {
+    return "border-emerald-300/70 bg-emerald-500/20 text-emerald-100";
+  }
+  if (tier === "A") {
+    return "border-cyan-300/70 bg-cyan-500/20 text-cyan-100";
+  }
+  if (tier === "B") {
+    return "border-blue-300/70 bg-blue-500/20 text-blue-100";
+  }
+  if (tier === "C") {
+    return "border-amber-300/70 bg-amber-500/20 text-amber-100";
+  }
+  if (tier === "D") {
+    return "border-orange-300/70 bg-orange-500/20 text-orange-100";
+  }
+  if (tier === "F") {
+    return "border-rose-300/70 bg-rose-500/20 text-rose-100";
+  }
+  return "border-slate-500/70 bg-slate-700/30 text-slate-200";
+}
+
+function mapMaxCPToLeague(maxCP) {
+  if (maxCP === 500) {
+    return "little";
+  }
+  if (maxCP === 1500) {
+    return "great";
+  }
+  if (maxCP === 2500) {
+    return "ultra";
+  }
+  return null;
+}
+
+function formatSpeciesDisplayName(speciesId) {
+  if (typeof speciesId !== "string" || speciesId.trim().length === 0) {
+    return "Unknown";
+  }
+
+  return speciesId
+    .trim()
+    .replace(/[\-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function compareLeagueEntries(left, right) {
+  const leftRank = isValidRank(left.rank) ? left.rank : Number.POSITIVE_INFINITY;
+  const rightRank = isValidRank(right.rank) ? right.rank : Number.POSITIVE_INFINITY;
+
+  if (leftRank !== rightRank) {
+    return leftRank - rightRank;
+  }
+
+  if (left.percentage !== right.percentage) {
+    return right.percentage - left.percentage;
+  }
+
+  return String(left.evaluatedSpeciesId).localeCompare(String(right.evaluatedSpeciesId));
+}
+
+function buildLeagueBreakdown(maxCPEvaluations) {
+  const byLeague = {
+    little: [],
+    great: [],
+    ultra: [],
+  };
+
+  const entries = normalizeMaxCPEvaluations(maxCPEvaluations);
+  let bestRank = null;
+
+  for (const entry of entries) {
+    const league = mapMaxCPToLeague(entry.maxCp);
+    if (!league) {
+      continue;
+    }
+
+    byLeague[league].push({
+      ...entry,
+      league,
+      tier: rankToTier(entry.rank),
+      speciesDisplayName: formatSpeciesDisplayName(entry.evaluatedSpeciesId),
+    });
+
+    if (isValidRank(entry.rank) && (bestRank === null || entry.rank < bestRank)) {
+      bestRank = entry.rank;
+    }
+  }
+
+  for (const tab of leagueTabs) {
+    byLeague[tab.key].sort(compareLeagueEntries);
+  }
+
+  return {
+    byLeague,
+    bestAvailableTier: bestRank === null ? null : rankToTier(bestRank),
+  };
+}
+
+function selectDefaultLeagueTab(byLeague) {
+  if (Array.isArray(byLeague.great) && byLeague.great.length > 0) {
+    return "great";
+  }
+  if (Array.isArray(byLeague.little) && byLeague.little.length > 0) {
+    return "little";
+  }
+  if (Array.isArray(byLeague.ultra) && byLeague.ultra.length > 0) {
+    return "ultra";
+  }
+  return "great";
+}
+
+function hasLeagueEntries(byLeague) {
+  return leagueTabs.some((tab) => Array.isArray(byLeague[tab.key]) && byLeague[tab.key].length > 0);
+}
+
 function deriveBestFitEvaluation(maxCPEvaluations) {
   const entries = normalizeMaxCPEvaluations(maxCPEvaluations);
   if (entries.length === 0) {
@@ -132,46 +283,89 @@ function formatBestFitSummary(maxCPEvaluations) {
   return `Best fit: ${bestFit.evaluatedSpeciesId} @ ${bestFit.maxCp} CP (${formatPercentage(bestFit.percentage)}, rank ${bestFit.rank})`;
 }
 
-function MaxCPEvaluationsDetails({ maxCPEvaluations }) {
-  const entries = normalizeMaxCPEvaluations(maxCPEvaluations);
-  if (entries.length === 0) {
-    return null;
-  }
+function TierChip({ ariaLabel, tier }) {
+  const displayTier = typeof tier === "string" && tier.trim().length > 0 ? tier : "N/A";
 
   return (
-    <details className="mt-3 rounded-lg border border-slate-800 bg-slate-900/60 p-2">
-      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-300">
-        Raw Max CP Evaluations ({entries.length})
-      </summary>
-      <div className="mt-2 overflow-x-auto">
-        <table className="min-w-full border-collapse text-left text-xs text-slate-200">
-          <thead className="text-slate-400">
-            <tr className="border-b border-slate-800">
-              <th className="px-2 py-1">Species</th>
-              <th className="px-2 py-1">Max CP</th>
-              <th className="px-2 py-1">Rank</th>
-              <th className="px-2 py-1">%</th>
-              <th className="px-2 py-1">Stat Product</th>
-              <th className="px-2 py-1">Best Level</th>
-              <th className="px-2 py-1">Best CP</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((entry) => (
-              <tr className="border-b border-slate-900" key={`${entry.evaluatedSpeciesId}-${entry.maxCp}`}>
-                <td className="px-2 py-1">{entry.evaluatedSpeciesId}</td>
-                <td className="px-2 py-1">{entry.maxCp}</td>
-                <td className="px-2 py-1">{entry.rank}</td>
-                <td className="px-2 py-1">{formatPercentage(entry.percentage)}</td>
-                <td className="px-2 py-1">{formatDecimal(entry.statProduct)}</td>
-                <td className="px-2 py-1">{formatDecimal(entry.bestLevel)}</td>
-                <td className="px-2 py-1">{entry.bestCp}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <span
+      aria-label={ariaLabel}
+      className={`inline-flex min-w-8 items-center justify-center rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${tierChipClasses(
+        displayTier,
+      )}`}
+    >
+      {displayTier}
+    </span>
+  );
+}
+
+function LeagueBreakdownPanel({ activeLeague, byLeague, onSelectLeague, regionLabel }) {
+  const entries = Array.isArray(byLeague[activeLeague]) ? byLeague[activeLeague] : [];
+
+  return (
+    <section aria-label={regionLabel} className="rounded-lg border border-slate-700 bg-slate-900/70 p-3" role="region">
+      <div className="grid grid-cols-3 gap-1.5 sm:flex sm:flex-wrap sm:gap-2" role="tablist">
+        {leagueTabs.map((tab) => {
+          const count = Array.isArray(byLeague[tab.key]) ? byLeague[tab.key].length : 0;
+          const isActive = activeLeague === tab.key;
+
+          return (
+            <button
+              aria-pressed={isActive}
+              className={`w-full rounded-full border px-2 py-1 text-[11px] font-semibold transition sm:w-auto sm:px-3 sm:text-xs ${
+                isActive
+                  ? "border-slate-200 bg-slate-100 text-slate-900"
+                  : "border-slate-600 bg-slate-800/60 text-slate-300 hover:bg-slate-700"
+              }`}
+              key={tab.key}
+              onClick={() => {
+                onSelectLeague(tab.key);
+              }}
+              role="tab"
+              type="button"
+            >
+              {tab.label} ({count})
+            </button>
+          );
+        })}
       </div>
-    </details>
+
+      {entries.length === 0 ? (
+        <p className="mt-3 text-xs text-slate-400">No evaluations for this league.</p>
+      ) : (
+        <ol className="mt-3 space-y-2">
+          {entries.map((entry) => (
+            <li className="rounded-lg border border-slate-700 bg-slate-900 p-3" key={`${entry.evaluatedSpeciesId}-${entry.maxCp}-${entry.rank}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-100">
+                  {entry.speciesDisplayName}
+                  <span className="ml-1 text-xs text-slate-400">({entry.evaluatedSpeciesId})</span>
+                </p>
+                <TierChip ariaLabel={`Tier ${entry.tier} for ${entry.speciesDisplayName}`} tier={entry.tier} />
+              </div>
+
+              <dl className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-200 md:grid-cols-4">
+                <div>
+                  <dt className="uppercase tracking-wide text-slate-400">Target CP</dt>
+                  <dd>{entry.maxCp}</dd>
+                </div>
+                <div>
+                  <dt className="uppercase tracking-wide text-slate-400">Rank</dt>
+                  <dd>{formatPercentage(entry.percentage)}</dd>
+                </div>
+                <div>
+                  <dt className="uppercase tracking-wide text-slate-400">Position</dt>
+                  <dd>{isValidRank(entry.rank) ? `#${entry.rank}` : "N/A"}</dd>
+                </div>
+                <div>
+                  <dt className="uppercase tracking-wide text-slate-400">Level</dt>
+                  <dd>{formatDecimal(entry.bestLevel)}</dd>
+                </div>
+              </dl>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 
@@ -239,10 +433,18 @@ function PendingReadingCard({ onResolvePendingOption, reading, resolving }) {
 
 function ResultCard({ result }) {
   const maxCPEvaluations = normalizeMaxCPEvaluations(result.maxCpEvaluations);
+  const leagueBreakdown = buildLeagueBreakdown(maxCPEvaluations);
+  const [isBreakdownOpen, setIsBreakdownOpen] = useState(false);
+  const [activeLeague, setActiveLeague] = useState(() => selectDefaultLeagueTab(leagueBreakdown.byLeague));
+  const hasBreakdownEntries = hasLeagueEntries(leagueBreakdown.byLeague);
+  const bestTier = leagueBreakdown.bestAvailableTier || "N/A";
 
   return (
     <article className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
-      <h3 className="text-base font-semibold text-slate-100">{result.speciesName}</h3>
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-base font-semibold text-slate-100">{result.speciesName}</h3>
+        <TierChip ariaLabel={`Best tier for card ${result.speciesName}: ${bestTier}`} tier={bestTier} />
+      </div>
       <p className="mt-1 text-xs text-slate-400">Result ID: {result.id}</p>
       <p className="mt-2 text-xs text-emerald-200">{formatBestFitSummary(maxCPEvaluations)}</p>
       <dl className="mt-3 grid grid-cols-2 gap-2 text-sm text-slate-200">
@@ -279,7 +481,32 @@ function ResultCard({ result }) {
           <dd className="break-all">{result.createdAt}</dd>
         </div>
       </dl>
-      <MaxCPEvaluationsDetails maxCPEvaluations={maxCPEvaluations} />
+
+      {hasBreakdownEntries ? (
+        <div className="mt-3">
+          <button
+            aria-expanded={isBreakdownOpen}
+            className="min-h-10 rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-2 text-xs font-semibold text-slate-100 transition hover:bg-slate-700"
+            onClick={() => {
+              setIsBreakdownOpen((current) => !current);
+            }}
+            type="button"
+          >
+            {isBreakdownOpen ? "Hide League Breakdown" : "Show League Breakdown"}
+          </button>
+
+          {isBreakdownOpen ? (
+            <div className="mt-2">
+              <LeagueBreakdownPanel
+                activeLeague={activeLeague}
+                byLeague={leagueBreakdown.byLeague}
+                onSelectLeague={setActiveLeague}
+                regionLabel={`League breakdown card for ${result.speciesName}`}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -302,6 +529,8 @@ export default function PokemonResultsPanel({
   const hasPendingReadings = normalizedPendingReadings.length > 0;
   const isLoading = phase === pokemonResultsPhases.LOADING;
   const isError = phase === pokemonResultsPhases.ERROR;
+  const [expandedResultIDSet, setExpandedResultIDSet] = useState(() => new Set());
+  const [rowActiveLeagueByID, setRowActiveLeagueByID] = useState({});
 
   return (
     <section className="mt-5 rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-300">
@@ -389,6 +618,7 @@ export default function PokemonResultsPanel({
             <table className="min-w-full border-collapse text-left text-xs">
               <thead className="text-slate-400">
                 <tr className="border-b border-slate-800">
+                  <th className="px-2 py-2">Details</th>
                   <th className="px-2 py-2">Species</th>
                   <th className="px-2 py-2">CP</th>
                   <th className="px-2 py-2">HP</th>
@@ -404,26 +634,85 @@ export default function PokemonResultsPanel({
               <tbody>
                 {normalizedResults.map((result) => {
                   const maxCPEvaluations = normalizeMaxCPEvaluations(result.maxCpEvaluations);
+                  const leagueBreakdown = buildLeagueBreakdown(maxCPEvaluations);
+                  const hasBreakdownEntries = hasLeagueEntries(leagueBreakdown.byLeague);
+                  const bestTier = leagueBreakdown.bestAvailableTier || "N/A";
+                  const defaultLeague = selectDefaultLeagueTab(leagueBreakdown.byLeague);
+                  const activeLeague = rowActiveLeagueByID[result.id] || defaultLeague;
+                  const isExpanded = expandedResultIDSet.has(result.id);
 
                   return (
-                    <tr className="border-b border-slate-900 align-top text-slate-200" key={result.id}>
-                      <td className="px-2 py-2">
-                        <p className="font-medium text-slate-100">{result.speciesName}</p>
-                        <p className="text-[11px] text-slate-500">{result.id}</p>
-                      </td>
-                      <td className="px-2 py-2">{result.cp}</td>
-                      <td className="px-2 py-2">{result.hp}</td>
-                      <td className="px-2 py-2">{result.powerUpStardustCost}</td>
-                      <td className="px-2 py-2">{formatIVs(result.ivs)}</td>
-                      <td className="px-2 py-2">{formatLevel(result.level)}</td>
-                      <td className="px-2 py-2">
-                        <p className="text-emerald-200">{formatBestFitSummary(maxCPEvaluations)}</p>
-                        <MaxCPEvaluationsDetails maxCPEvaluations={maxCPEvaluations} />
-                      </td>
-                      <td className="px-2 py-2 break-all">{formatSourceContext(result.source)}</td>
-                      <td className="px-2 py-2">{formatConfidence(result.confidence)}</td>
-                      <td className="px-2 py-2 break-all">{result.createdAt}</td>
-                    </tr>
+                    <Fragment key={result.id}>
+                      <tr className="border-b border-slate-900 align-top text-slate-200">
+                        <td className="px-2 py-2">
+                          <button
+                            aria-controls={`league-breakdown-${result.id}`}
+                            aria-expanded={isExpanded}
+                            aria-label={`Toggle league breakdown row for ${result.speciesName}`}
+                            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md border border-slate-600 bg-slate-800/70 text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={!hasBreakdownEntries}
+                            onClick={() => {
+                              setExpandedResultIDSet((current) => {
+                                const next = new Set(current);
+                                if (next.has(result.id)) {
+                                  next.delete(result.id);
+                                } else {
+                                  next.add(result.id);
+                                }
+                                return next;
+                              });
+
+                              setRowActiveLeagueByID((current) => {
+                                if (current[result.id]) {
+                                  return current;
+                                }
+                                return {
+                                  ...current,
+                                  [result.id]: defaultLeague,
+                                };
+                              });
+                            }}
+                            type="button"
+                          >
+                            {isExpanded ? "v" : ">"}
+                          </button>
+                        </td>
+                        <td className="px-2 py-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium text-slate-100">{result.speciesName}</p>
+                            <TierChip ariaLabel={`Best tier for row ${result.speciesName}: ${bestTier}`} tier={bestTier} />
+                          </div>
+                          <p className="text-[11px] text-slate-500">{result.id}</p>
+                        </td>
+                        <td className="px-2 py-2">{result.cp}</td>
+                        <td className="px-2 py-2">{result.hp}</td>
+                        <td className="px-2 py-2">{result.powerUpStardustCost}</td>
+                        <td className="px-2 py-2">{formatIVs(result.ivs)}</td>
+                        <td className="px-2 py-2">{formatLevel(result.level)}</td>
+                        <td className="px-2 py-2 text-emerald-200">{formatBestFitSummary(maxCPEvaluations)}</td>
+                        <td className="px-2 py-2 break-all">{formatSourceContext(result.source)}</td>
+                        <td className="px-2 py-2">{formatConfidence(result.confidence)}</td>
+                        <td className="px-2 py-2 break-all">{result.createdAt}</td>
+                      </tr>
+
+                      {isExpanded ? (
+                        <tr className="border-b border-slate-900 bg-slate-900/40" id={`league-breakdown-${result.id}`}>
+                          <td className="px-2 pb-3" colSpan={11}>
+                            <LeagueBreakdownPanel
+                              activeLeague={activeLeague}
+                              byLeague={leagueBreakdown.byLeague}
+                              onSelectLeague={(league) => {
+                                setRowActiveLeagueByID((current) => ({
+                                  ...current,
+                                  [result.id]: league,
+                                }));
+                              }}
+                              regionLabel={`League breakdown row for ${result.speciesName}`}
+                            />
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
                   );
                 })}
               </tbody>

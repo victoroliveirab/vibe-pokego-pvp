@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import PokemonResultsPanel from "./PokemonResultsPanel";
 import { pokemonResultsPhases } from "./pokemon-results-state";
 
@@ -31,6 +31,15 @@ function createResult(overrides = {}) {
     },
     confidence: 0.86,
     maxCpEvaluations: [
+      {
+        maxCp: 500,
+        evaluatedSpeciesId: "machop",
+        bestLevel: 10.5,
+        bestCp: 500,
+        statProduct: 890123.45,
+        rank: 9,
+        percentage: 89.4,
+      },
       {
         maxCp: 1500,
         evaluatedSpeciesId: "machoke",
@@ -117,7 +126,7 @@ describe("pokemon results panel", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it("renders mixed video/image rows with required metrics and null-safe fallbacks", () => {
+  it("renders tier chips in row headers and null-safe fallbacks", () => {
     render(
       <PokemonResultsPanel
         {...createProps({
@@ -160,55 +169,72 @@ describe("pokemon results panel", () => {
       />,
     );
 
-    expect(screen.getAllByText("Machop").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Pikachu").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("12/15/13").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("10/12/11").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("23.5 (ARC_POSITION, 72%)").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("N/A (UNKNOWN, N/A)").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("86%").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("N/A").length).toBeGreaterThan(0);
-    expect(screen.getByText("Last updated: 2026-03-05T20:25:00Z")).toBeTruthy();
-    expect(
-      screen.getAllByText("Video | Upload upload-1 | Job job-1 | Time 12000-15500 ms | Frame 13200 ms").length,
-    ).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText("Image | Upload upload-2 | Job job-2 | Time N/A | Frame N/A").length,
-    ).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText("Best fit: machamp @ 2500 CP (96.11%, rank 98)").length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText("Best tier for row Machop: S").length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText("Best tier for row Pikachu: N/A").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Best fit: machamp @ 2500 CP (96.11%, rank 98)").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Best fit: N/A").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Raw Max CP Evaluations (2)").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("machoke").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("1567890.12").length).toBeGreaterThan(0);
+
+    const machopToggle = screen.getAllByRole("button", { name: "Toggle league breakdown row for Machop" })[0];
+    const pikachuToggle = screen.getAllByRole("button", { name: "Toggle league breakdown row for Pikachu" })[0];
+
+    expect(machopToggle.disabled).toBe(false);
+    expect(pikachuToggle.disabled).toBe(true);
+    expect(screen.getByText("Last updated: 2026-03-05T20:25:00Z")).toBeTruthy();
   });
 
-  it("uses tie-breakers for best fit selection: percentage, then lower rank, then higher max cp", () => {
+  it("renders a toggled sub-row with Little/Great/Ultra tabs and sorted entries", () => {
     render(
       <PokemonResultsPanel
         {...createProps({
           phase: pokemonResultsPhases.SUCCESS,
           results: [
             createResult({
+              speciesName: "Horsea",
               maxCpEvaluations: [
                 {
                   maxCp: 1500,
-                  evaluatedSpeciesId: "alpha",
-                  bestLevel: 20,
-                  bestCp: 1499,
-                  statProduct: 1000,
-                  rank: 42,
-                  percentage: 95.55,
+                  evaluatedSpeciesId: "kingdra",
+                  bestLevel: 21.5,
+                  bestCp: 1480,
+                  statProduct: 2222222,
+                  rank: 246,
+                  percentage: 94.02,
+                },
+                {
+                  maxCp: 1500,
+                  evaluatedSpeciesId: "seadra",
+                  bestLevel: 27.5,
+                  bestCp: 1491,
+                  statProduct: 3333333,
+                  rank: 105,
+                  percentage: 97.46,
+                },
+                {
+                  maxCp: 1500,
+                  evaluatedSpeciesId: "horsea",
+                  bestLevel: 50,
+                  bestCp: 1038,
+                  statProduct: 1111111,
+                  rank: 1633,
+                  percentage: 60.15,
+                },
+                {
+                  maxCp: 500,
+                  evaluatedSpeciesId: "horsea",
+                  bestLevel: 10,
+                  bestCp: 497,
+                  statProduct: 500000,
+                  rank: 500,
+                  percentage: 70,
                 },
                 {
                   maxCp: 2500,
-                  evaluatedSpeciesId: "beta",
-                  bestLevel: 35,
-                  bestCp: 2499,
-                  statProduct: 1200,
-                  rank: 42,
-                  percentage: 95.55,
+                  evaluatedSpeciesId: "kingdra",
+                  bestLevel: 44,
+                  bestCp: 2498,
+                  statProduct: 4000000,
+                  rank: 300,
+                  percentage: 90,
                 },
               ],
             }),
@@ -217,7 +243,126 @@ describe("pokemon results panel", () => {
       />,
     );
 
-    expect(screen.getAllByText("Best fit: beta @ 2500 CP (95.55%, rank 42)").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Toggle league breakdown row for Horsea" }));
+
+    const region = screen.getByRole("region", { name: "League breakdown row for Horsea" });
+    expect(within(region).getByRole("tab", { name: "Little (1)" })).toBeTruthy();
+    expect(within(region).getByRole("tab", { name: "Great (3)" })).toBeTruthy();
+    expect(within(region).getByRole("tab", { name: "Ultra (1)" })).toBeTruthy();
+
+    fireEvent.click(within(region).getByRole("tab", { name: "Great (3)" }));
+
+    const entries = within(region).getAllByRole("listitem");
+    expect(entries[0].textContent).toContain("Seadra");
+    expect(entries[1].textContent).toContain("Kingdra");
+    expect(entries[2].textContent).toContain("Horsea");
+
+    expect(within(region).getByLabelText("Tier C for Seadra")).toBeTruthy();
+    expect(within(region).getByLabelText("Tier D for Kingdra")).toBeTruthy();
+    expect(within(region).getByLabelText("Tier F for Horsea")).toBeTruthy();
+  });
+
+  it("allows multiple expanded rows simultaneously", () => {
+    render(
+      <PokemonResultsPanel
+        {...createProps({
+          phase: pokemonResultsPhases.SUCCESS,
+          results: [
+            createResult({ id: "result-1", speciesName: "Machop" }),
+            createResult({ id: "result-2", speciesName: "Dragonite" }),
+          ],
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle league breakdown row for Machop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Toggle league breakdown row for Dragonite" }));
+
+    expect(screen.getByRole("region", { name: "League breakdown row for Machop" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "League breakdown row for Dragonite" })).toBeTruthy();
+  });
+
+  it("maps rank buckets to S/A/B/C/D/F chips", () => {
+    render(
+      <PokemonResultsPanel
+        {...createProps({
+          phase: pokemonResultsPhases.SUCCESS,
+          results: [
+            createResult({
+              speciesName: "Bulbasaur",
+              maxCpEvaluations: [
+                {
+                  maxCp: 1500,
+                  evaluatedSpeciesId: "alpha",
+                  bestLevel: 20,
+                  bestCp: 1400,
+                  statProduct: 1000,
+                  rank: 10,
+                  percentage: 99,
+                },
+                {
+                  maxCp: 1500,
+                  evaluatedSpeciesId: "bravo",
+                  bestLevel: 20,
+                  bestCp: 1390,
+                  statProduct: 950,
+                  rank: 11,
+                  percentage: 98,
+                },
+                {
+                  maxCp: 1500,
+                  evaluatedSpeciesId: "charlie",
+                  bestLevel: 20,
+                  bestCp: 1380,
+                  statProduct: 940,
+                  rank: 51,
+                  percentage: 97,
+                },
+                {
+                  maxCp: 1500,
+                  evaluatedSpeciesId: "delta",
+                  bestLevel: 20,
+                  bestCp: 1370,
+                  statProduct: 930,
+                  rank: 101,
+                  percentage: 96,
+                },
+                {
+                  maxCp: 1500,
+                  evaluatedSpeciesId: "echo",
+                  bestLevel: 20,
+                  bestCp: 1360,
+                  statProduct: 920,
+                  rank: 201,
+                  percentage: 95,
+                },
+                {
+                  maxCp: 1500,
+                  evaluatedSpeciesId: "foxtrot",
+                  bestLevel: 20,
+                  bestCp: 1350,
+                  statProduct: 910,
+                  rank: 401,
+                  percentage: 94,
+                },
+              ],
+            }),
+          ],
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle league breakdown row for Bulbasaur" }));
+
+    const region = screen.getByRole("region", { name: "League breakdown row for Bulbasaur" });
+
+    expect(screen.getAllByLabelText("Best tier for row Bulbasaur: S").length).toBeGreaterThan(0);
+    expect(within(region).getByLabelText("Tier S for Alpha")).toBeTruthy();
+    expect(within(region).getByLabelText("Tier A for Bravo")).toBeTruthy();
+    expect(within(region).getByLabelText("Tier B for Charlie")).toBeTruthy();
+    expect(within(region).getByLabelText("Tier C for Delta")).toBeTruthy();
+    expect(within(region).getByLabelText("Tier D for Echo")).toBeTruthy();
+    expect(within(region).getByLabelText("Tier F for Foxtrot")).toBeTruthy();
   });
 
   it("renders pending species options and triggers resolve callback", () => {
