@@ -51,6 +51,7 @@ export default function UploadStatusPanel({
   canRetry,
   error,
   finishedAt,
+  isDebugMode = false,
   isRetrying,
   jobError,
   jobId,
@@ -102,7 +103,7 @@ export default function UploadStatusPanel({
           <p className="mt-1 text-xs text-rose-100/80">Stage: {stage}</p>
           <p className="mt-1 text-xs text-rose-100/80">Progress: {progress}%</p>
           {finishedAt ? <p className="mt-1 text-xs text-rose-100/80">Finished at: {finishedAt}</p> : null}
-          <JobIdentity jobId={jobId} uploadId={uploadId} />
+          {isDebugMode ? <JobIdentity jobId={jobId} uploadId={uploadId} /> : null}
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
             <button
               className="min-h-11 rounded-lg border border-rose-300/30 px-3 py-2 text-sm font-semibold text-rose-50 transition hover:bg-rose-500/20"
@@ -132,7 +133,7 @@ export default function UploadStatusPanel({
           <p className="status-panel-title">Processing complete</p>
           <p className="mt-1 text-sm text-emerald-50">Appraisal extraction finished successfully.</p>
           {finishedAt ? <p className="mt-2 text-xs text-emerald-100/80">Finished at: {finishedAt}</p> : null}
-          <JobIdentity jobId={jobId} uploadId={uploadId} />
+          {isDebugMode ? <JobIdentity jobId={jobId} uploadId={uploadId} /> : null}
           <div className="mt-4">
             <button
               className="min-h-11 rounded-lg border border-emerald-300/30 px-3 py-2 text-sm font-semibold text-emerald-50 transition hover:bg-emerald-500/20"
@@ -153,7 +154,7 @@ export default function UploadStatusPanel({
           <p className="mt-1 text-sm text-amber-50">
             Processing finished, but we need a species confirmation before finalizing results.
           </p>
-          <JobIdentity jobId={jobId} uploadId={uploadId} />
+          {isDebugMode ? <JobIdentity jobId={jobId} uploadId={uploadId} /> : null}
           <div className="mt-4">
             <button
               className="min-h-11 rounded-lg border border-amber-300/30 px-3 py-2 text-sm font-semibold text-amber-50 transition hover:bg-amber-500/20"
@@ -180,7 +181,7 @@ export default function UploadStatusPanel({
         <div aria-label="Job progress" aria-valuemax={100} aria-valuemin={0} aria-valuenow={progress} className="mt-2 h-2 rounded-full bg-emerald-900/60" role="progressbar">
           <div className="h-full rounded-full bg-emerald-300 transition-[width]" style={{ width: `${progress}%` }} />
         </div>
-        <JobIdentity jobId={jobId} uploadId={uploadId} />
+        {isDebugMode ? <JobIdentity jobId={jobId} uploadId={uploadId} /> : null}
         {lastPolledAt ? <p className="mt-2 text-xs text-emerald-100/70">Last updated: {lastPolledAt}</p> : null}
         {error && error.message ? (
           <p className="mt-2 text-xs text-amber-100/90">Status check issue: {error.message}. Retrying automatically.</p>

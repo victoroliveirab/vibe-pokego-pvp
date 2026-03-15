@@ -58,6 +58,7 @@ func TestRunQueueTickClaimsQueuedJobAndPersistsTerminalLifecycle(t *testing.T) {
 		"worker-run-1",
 		30*time.Second,
 		200*time.Millisecond,
+		nil,
 		processor,
 		tickTime,
 		nowFn,
@@ -155,6 +156,7 @@ func TestRunQueueTickExpiresStaleProcessingJobs(t *testing.T) {
 		30*time.Second,
 		200*time.Millisecond,
 		nil,
+		nil,
 		now,
 		func() time.Time { return now },
 	)
@@ -184,6 +186,44 @@ func TestRunQueueTickExpiresStaleProcessingJobs(t *testing.T) {
 	}
 	if !finishedAt.Valid {
 		t.Fatal("expected finished_at to be populated for expired processing job")
+	}
+}
+
+func TestRunQueueTickInvokesPVPEvalRunner(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "run-pvp.db")
+	db := newRunQueueTestDB(t, dbPath)
+	_ = db
+
+	store, err := jobqueue.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("expected queue store to initialize: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	runner := &fakeTickPVPRunner{returnCount: 2}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	now := time.Date(2026, time.March, 6, 13, 0, 0, 0, time.UTC)
+
+	runQueueTick(
+		context.Background(),
+		store,
+		logger,
+		"worker-run-pvp",
+		30*time.Second,
+		200*time.Millisecond,
+		runner,
+		nil,
+		now,
+		func() time.Time { return now },
+	)
+
+	if runner.calls != 1 {
+		t.Fatalf("expected pvp runner to be called once, got %d", runner.calls)
+	}
+	if runner.limit != defaultPVPEvalQueueBatchSize {
+		t.Fatalf("expected pvp runner limit %d, got %d", defaultPVPEvalQueueBatchSize, runner.limit)
 	}
 }
 
@@ -311,4 +351,16 @@ func ptrString(value string) *string {
 
 func ptrTime(value time.Time) *time.Time {
 	return &value
+}
+
+type fakeTickPVPRunner struct {
+	calls       int
+	limit       int
+	returnCount int
+}
+
+func (f *fakeTickPVPRunner) ProcessQueue(_ context.Context, limit int, _ time.Time) (int, error) {
+	f.calls++
+	f.limit = limit
+	return f.returnCount, nil
 }

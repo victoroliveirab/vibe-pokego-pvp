@@ -12,6 +12,11 @@ const (
 
 	LevelMethodArcPosition = "ARC_POSITION"
 	LevelMethodUnknown     = "UNKNOWN"
+
+	PvPEvalQueueStatusPending    = "PENDING"
+	PvPEvalQueueStatusProcessing = "PROCESSING"
+	PvPEvalQueueStatusSucceeded  = "SUCCEEDED"
+	PvPEvalQueueStatusFailed     = "FAILED"
 )
 
 // Candidate represents a raw OCR extraction attempt.
@@ -58,6 +63,32 @@ type Result struct {
 	FrameTimestampMS     *int64
 	ExtractionConfidence *float64
 	CreatedAt            time.Time
+}
+
+// PvPEvaluationQueueItem represents one queue row for deferred PvP evaluation processing.
+type PvPEvaluationQueueItem struct {
+	ID                string
+	AppraisalResultID string
+	Status            string
+	RetryCount        int
+	LastError         *string
+	Locked            bool
+	NextRetryAt       *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+// UpsertPvPEvaluationParams describes one raw max-CP evaluation row to persist.
+type UpsertPvPEvaluationParams struct {
+	ID                 string
+	MaxCP              int
+	EvaluatedSpeciesID string
+	BestLevel          float64
+	BestCP             int
+	StatProduct        float64
+	RankPosition       int
+	Percentage         float64
+	CreatedAt          time.Time
 }
 
 func newID() (string, error) {

@@ -21,7 +21,46 @@
           "attack": 10,
           "defense": 13,
           "stamina": 15
-        }
+        },
+        "maxCpEvaluationsMinCount": 3,
+        "maxCpEvaluationsMustContain": [
+          {
+            "maxCp": 500,
+            "evaluatedSpeciesId": "nidoqueen",
+            "bestCp": 470,
+            "bestLevelMin": 6.5,
+            "bestLevelMax": 7.5,
+            "rankMax": 3500,
+            "percentageMin": 89.5,
+            "percentageMax": 89.7,
+            "statProductMin": 331800,
+            "statProductMax": 331900
+          },
+          {
+            "maxCp": 1500,
+            "evaluatedSpeciesId": "nidoqueen",
+            "bestCp": 1481,
+            "bestLevelMin": 21.0,
+            "bestLevelMax": 22.0,
+            "rankMax": 2000,
+            "percentageMin": 95.5,
+            "percentageMax": 95.6,
+            "statProductMin": 1857000,
+            "statProductMax": 1858000
+          },
+          {
+            "maxCp": 2500,
+            "evaluatedSpeciesId": "nidoqueen",
+            "bestCp": 2488,
+            "bestLevelMin": 42.0,
+            "bestLevelMax": 43.0,
+            "rankMax": 1500,
+            "percentageMin": 96.6,
+            "percentageMax": 96.7,
+            "statProductMin": 4053000,
+            "statProductMax": 4055000
+          }
+        ]
       }
     ],
     "mustNotContainSpecies": []

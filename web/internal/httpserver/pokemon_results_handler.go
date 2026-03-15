@@ -36,6 +36,19 @@ func (h *pokemonResultsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 
 	payloadResults := make([]pokemonResultResponse, 0, len(results))
 	for _, result := range results {
+		payloadMaxCPEvaluations := make([]pokemonResultMaxCPEvaluationResponse, 0, len(result.MaxCPEvaluations))
+		for _, evaluation := range result.MaxCPEvaluations {
+			payloadMaxCPEvaluations = append(payloadMaxCPEvaluations, pokemonResultMaxCPEvaluationResponse{
+				MaxCP:              evaluation.MaxCP,
+				EvaluatedSpeciesID: evaluation.EvaluatedSpeciesID,
+				BestLevel:          evaluation.BestLevel,
+				BestCP:             evaluation.BestCP,
+				StatProduct:        evaluation.StatProduct,
+				Rank:               evaluation.Rank,
+				Percentage:         evaluation.Percentage,
+			})
+		}
+
 		payloadResults = append(payloadResults, pokemonResultResponse{
 			ID:                  result.ID,
 			SpeciesName:         result.SpeciesName,
@@ -62,8 +75,9 @@ func (h *pokemonResultsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 				},
 				FrameTimestampMS: result.FrameTimestampMS,
 			},
-			Confidence: result.ExtractionConfidence,
-			CreatedAt:  result.CreatedAt.Format(time.RFC3339Nano),
+			Confidence:       result.ExtractionConfidence,
+			MaxCPEvaluations: payloadMaxCPEvaluations,
+			CreatedAt:        result.CreatedAt.Format(time.RFC3339Nano),
 		})
 	}
 
@@ -77,16 +91,27 @@ type pokemonResultsEnvelopeResponse struct {
 }
 
 type pokemonResultResponse struct {
-	ID                  string                      `json:"id"`
-	SpeciesName         string                      `json:"speciesName"`
-	CP                  int                         `json:"cp"`
-	HP                  int                         `json:"hp"`
-	PowerUpStardustCost int                         `json:"powerUpStardustCost"`
-	IVs                 pokemonResultIVsResponse    `json:"ivs"`
-	Level               pokemonResultLevelResponse  `json:"level"`
-	Source              pokemonResultSourceResponse `json:"source"`
-	Confidence          *float64                    `json:"confidence"`
-	CreatedAt           string                      `json:"createdAt"`
+	ID                  string                                 `json:"id"`
+	SpeciesName         string                                 `json:"speciesName"`
+	CP                  int                                    `json:"cp"`
+	HP                  int                                    `json:"hp"`
+	PowerUpStardustCost int                                    `json:"powerUpStardustCost"`
+	IVs                 pokemonResultIVsResponse               `json:"ivs"`
+	Level               pokemonResultLevelResponse             `json:"level"`
+	Source              pokemonResultSourceResponse            `json:"source"`
+	Confidence          *float64                               `json:"confidence"`
+	MaxCPEvaluations    []pokemonResultMaxCPEvaluationResponse `json:"maxCpEvaluations,omitempty"`
+	CreatedAt           string                                 `json:"createdAt"`
+}
+
+type pokemonResultMaxCPEvaluationResponse struct {
+	MaxCP              int     `json:"maxCp"`
+	EvaluatedSpeciesID string  `json:"evaluatedSpeciesId"`
+	BestLevel          float64 `json:"bestLevel"`
+	BestCP             int     `json:"bestCp"`
+	StatProduct        float64 `json:"statProduct"`
+	Rank               int     `json:"rank"`
+	Percentage         float64 `json:"percentage"`
 }
 
 type pokemonResultIVsResponse struct {

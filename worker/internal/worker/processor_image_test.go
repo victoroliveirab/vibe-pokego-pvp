@@ -2124,6 +2124,35 @@ CREATE TABLE IF NOT EXISTS appraisal_results (
 	FOREIGN KEY(upload_id) REFERENCES uploads(id)
 );
 
+CREATE TABLE IF NOT EXISTS appraisal_result_pvp_evaluations (
+	id TEXT PRIMARY KEY,
+	appraisal_result_id TEXT NOT NULL,
+	max_cp INTEGER NOT NULL,
+	evaluated_species_id TEXT NOT NULL,
+	best_level REAL NOT NULL,
+	best_cp INTEGER NOT NULL,
+	stat_product REAL NOT NULL,
+	rank_position INTEGER NOT NULL,
+	percentage REAL NOT NULL,
+	created_at TEXT NOT NULL,
+	UNIQUE(appraisal_result_id, max_cp, evaluated_species_id),
+	FOREIGN KEY(appraisal_result_id) REFERENCES appraisal_results(id)
+);
+
+CREATE TABLE IF NOT EXISTS appraisal_result_pvp_eval_queue (
+	id TEXT PRIMARY KEY,
+	appraisal_result_id TEXT NOT NULL,
+	status TEXT NOT NULL,
+	retry_count INTEGER NOT NULL DEFAULT 0,
+	last_error TEXT NULL,
+	locked INTEGER NOT NULL DEFAULT 0,
+	next_retry_at TEXT NULL,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	UNIQUE(appraisal_result_id),
+	FOREIGN KEY(appraisal_result_id) REFERENCES appraisal_results(id)
+);
+
 CREATE TABLE IF NOT EXISTS appraisal_pending_readings (
 	id TEXT PRIMARY KEY,
 	job_id TEXT NOT NULL,

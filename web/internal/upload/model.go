@@ -93,7 +93,19 @@ type PokemonResultRecord struct {
 	EndMS                *int64
 	FrameTimestampMS     *int64
 	ExtractionConfidence *float64
+	MaxCPEvaluations     []PokemonResultMaxCPEvaluationRecord
 	CreatedAt            time.Time
+}
+
+// PokemonResultMaxCPEvaluationRecord stores one persisted max-CP evaluation for an appraisal result.
+type PokemonResultMaxCPEvaluationRecord struct {
+	MaxCP              int
+	EvaluatedSpeciesID string
+	BestLevel          float64
+	BestCP             int
+	StatProduct        float64
+	Rank               int
+	Percentage         float64
 }
 
 // PendingSpeciesOptionRecord stores one selectable species option for a pending reading.

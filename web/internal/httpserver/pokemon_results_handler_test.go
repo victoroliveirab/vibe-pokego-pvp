@@ -37,6 +37,8 @@ func TestPokemonResultsHandlerReturnsMappedPayloadForVideoAndImageResults(t *tes
 	endMS := int64(15500)
 	frameTimestampMS := int64(13200)
 	extractionConfidence := 0.86
+	bestLevelGreat := 23.5
+	bestLevelUltra := 39.0
 
 	createdAtVideo := time.Date(2026, time.March, 5, 10, 12, 5, 0, time.UTC)
 	createdAtImage := createdAtVideo.Add(time.Second)
@@ -68,7 +70,27 @@ func TestPokemonResultsHandlerReturnsMappedPayloadForVideoAndImageResults(t *tes
 					EndMS:                &endMS,
 					FrameTimestampMS:     &frameTimestampMS,
 					ExtractionConfidence: &extractionConfidence,
-					CreatedAt:            createdAtVideo,
+					MaxCPEvaluations: []upload.PokemonResultMaxCPEvaluationRecord{
+						{
+							MaxCP:              1500,
+							EvaluatedSpeciesID: "machoke",
+							BestLevel:          bestLevelGreat,
+							BestCP:             1499,
+							StatProduct:        1567890.12,
+							Rank:               143,
+							Percentage:         93.32,
+						},
+						{
+							MaxCP:              2500,
+							EvaluatedSpeciesID: "machamp",
+							BestLevel:          bestLevelUltra,
+							BestCP:             2498,
+							StatProduct:        2789012.34,
+							Rank:               98,
+							Percentage:         96.11,
+						},
+					},
+					CreatedAt: createdAtVideo,
 				},
 				{
 					ID:                  "result-image",
@@ -149,6 +171,27 @@ func TestPokemonResultsHandlerReturnsMappedPayloadForVideoAndImageResults(t *tes
 	if first.CreatedAt != createdAtVideo.Format(time.RFC3339Nano) {
 		t.Fatalf("expected createdAt %q, got %q", createdAtVideo.Format(time.RFC3339Nano), first.CreatedAt)
 	}
+	if len(first.MaxCPEvaluations) != 2 {
+		t.Fatalf("expected 2 max cp evaluations, got %d", len(first.MaxCPEvaluations))
+	}
+	if first.MaxCPEvaluations[0].MaxCP != 1500 || first.MaxCPEvaluations[0].EvaluatedSpeciesID != "machoke" {
+		t.Fatalf("unexpected first max cp evaluation payload: %#v", first.MaxCPEvaluations[0])
+	}
+	if first.MaxCPEvaluations[0].BestLevel != bestLevelGreat || first.MaxCPEvaluations[0].BestCP != 1499 {
+		t.Fatalf("unexpected first max cp level/cp payload: %#v", first.MaxCPEvaluations[0])
+	}
+	if first.MaxCPEvaluations[0].Rank != 143 || first.MaxCPEvaluations[0].Percentage != 93.32 {
+		t.Fatalf("unexpected first max cp rank/percentage payload: %#v", first.MaxCPEvaluations[0])
+	}
+	if first.MaxCPEvaluations[1].MaxCP != 2500 || first.MaxCPEvaluations[1].EvaluatedSpeciesID != "machamp" {
+		t.Fatalf("unexpected second max cp evaluation payload: %#v", first.MaxCPEvaluations[1])
+	}
+	if first.MaxCPEvaluations[1].BestLevel != bestLevelUltra || first.MaxCPEvaluations[1].BestCP != 2498 {
+		t.Fatalf("unexpected second max cp level/cp payload: %#v", first.MaxCPEvaluations[1])
+	}
+	if first.MaxCPEvaluations[1].Rank != 98 || first.MaxCPEvaluations[1].Percentage != 96.11 {
+		t.Fatalf("unexpected second max cp rank/percentage payload: %#v", first.MaxCPEvaluations[1])
+	}
 
 	second := payload.Results[1]
 	if second.ID != "result-image" {
@@ -171,6 +214,9 @@ func TestPokemonResultsHandlerReturnsMappedPayloadForVideoAndImageResults(t *tes
 	}
 	if second.CreatedAt != createdAtImage.Format(time.RFC3339Nano) {
 		t.Fatalf("expected createdAt %q, got %q", createdAtImage.Format(time.RFC3339Nano), second.CreatedAt)
+	}
+	if len(second.MaxCPEvaluations) != 0 {
+		t.Fatalf("expected empty max cp evaluations for second result, got %#v", second.MaxCPEvaluations)
 	}
 }
 

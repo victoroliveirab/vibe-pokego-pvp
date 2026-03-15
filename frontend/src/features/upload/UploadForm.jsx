@@ -23,10 +23,6 @@ export default function UploadForm({
 
   return (
     <form className="space-y-4" onSubmit={onSubmit}>
-      <label className="block text-sm font-medium text-slate-200" htmlFor="media-upload">
-        Choose image or video
-      </label>
-
       <input
         accept="image/*,video/*"
         className="block w-full cursor-pointer rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-200 file:mr-4 file:min-h-11 file:cursor-pointer file:rounded-lg file:border-0 file:bg-cyan-500 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-950 hover:file:bg-cyan-300"

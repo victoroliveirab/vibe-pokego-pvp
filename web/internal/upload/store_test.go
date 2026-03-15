@@ -19,6 +19,8 @@ func TestSQLiteStoreBootstrapsUploadAndJobSchema(t *testing.T) {
 	assertSQLiteObjectExists(t, store.db, "table", "jobs")
 	assertSQLiteObjectExists(t, store.db, "table", "appraisal_candidates")
 	assertSQLiteObjectExists(t, store.db, "table", "appraisal_results")
+	assertSQLiteObjectExists(t, store.db, "table", "appraisal_result_pvp_evaluations")
+	assertSQLiteObjectExists(t, store.db, "table", "appraisal_result_pvp_eval_queue")
 	assertSQLiteObjectExists(t, store.db, "table", "appraisal_pending_readings")
 	assertSQLiteObjectExists(t, store.db, "table", "appraisal_pending_species_options")
 	assertSQLiteObjectExists(t, store.db, "table", "job_debug_jobs")
@@ -31,6 +33,10 @@ func TestSQLiteStoreBootstrapsUploadAndJobSchema(t *testing.T) {
 	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_results_job_id")
 	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_results_upload_id")
 	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_results_session_id")
+	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_result_pvp_evals_result_id")
+	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_result_pvp_evals_species_id")
+	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_result_pvp_eval_queue_status_next_retry")
+	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_result_pvp_eval_queue_result_id")
 	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_pending_readings_job_id")
 	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_pending_readings_session_id")
 	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_pending_species_options_pending_reading_id")
@@ -685,6 +691,18 @@ func TestListPokemonResultsBySessionReturnsSessionScopedDeterministicRowsAndNull
 		SourceType:          "IMAGE",
 		CreatedAt:           baseCreatedAt,
 	})
+	seedPvPEvaluationRow(t, store.db, seededPvPEvaluationRow{
+		ID:                 "pvp-eval-b1",
+		AppraisalResultID:  "result-z",
+		MaxCP:              1500,
+		EvaluatedSpeciesID: "charmeleon",
+		BestLevel:          20.0,
+		BestCP:             1495,
+		StatProduct:        1234567.89,
+		RankPosition:       210,
+		Percentage:         90.01,
+		CreatedAt:          baseCreatedAt,
+	})
 
 	seedUploadRow(t, store.db, "upload-a1", sessionA, baseCreatedAt)
 	seedJobRow(t, store.db, seededJobRow{
@@ -718,6 +736,30 @@ func TestListPokemonResultsBySessionReturnsSessionScopedDeterministicRowsAndNull
 		ExtractionConfidence: &extractionConfidence,
 		CreatedAt:            baseCreatedAt,
 	})
+	seedPvPEvaluationRow(t, store.db, seededPvPEvaluationRow{
+		ID:                 "pvp-eval-a1",
+		AppraisalResultID:  "result-1",
+		MaxCP:              1500,
+		EvaluatedSpeciesID: "machoke",
+		BestLevel:          23.5,
+		BestCP:             1498,
+		StatProduct:        1567890.12,
+		RankPosition:       143,
+		Percentage:         93.32,
+		CreatedAt:          baseCreatedAt,
+	})
+	seedPvPEvaluationRow(t, store.db, seededPvPEvaluationRow{
+		ID:                 "pvp-eval-a2",
+		AppraisalResultID:  "result-1",
+		MaxCP:              2500,
+		EvaluatedSpeciesID: "machamp",
+		BestLevel:          39.0,
+		BestCP:             2499,
+		StatProduct:        2789012.34,
+		RankPosition:       98,
+		Percentage:         96.11,
+		CreatedAt:          baseCreatedAt,
+	})
 
 	laterCreatedAt := baseCreatedAt.Add(time.Second)
 	seedUploadRow(t, store.db, "upload-a3", sessionA, laterCreatedAt)
@@ -745,6 +787,18 @@ func TestListPokemonResultsBySessionReturnsSessionScopedDeterministicRowsAndNull
 		LevelMethod:         "UNKNOWN",
 		SourceType:          "IMAGE",
 		CreatedAt:           laterCreatedAt,
+	})
+	seedPvPEvaluationRow(t, store.db, seededPvPEvaluationRow{
+		ID:                 "pvp-eval-a3",
+		AppraisalResultID:  "result-3",
+		MaxCP:              500,
+		EvaluatedSpeciesID: "ivysaur",
+		BestLevel:          10.0,
+		BestCP:             499,
+		StatProduct:        543210.0,
+		RankPosition:       12,
+		Percentage:         99.01,
+		CreatedAt:          laterCreatedAt,
 	})
 
 	results, err := store.ListPokemonResultsBySession(ctx, sessionA)
@@ -777,7 +831,27 @@ func TestListPokemonResultsBySessionReturnsSessionScopedDeterministicRowsAndNull
 			EndMS:                &endMS,
 			FrameTimestampMS:     &frameTimestampMS,
 			ExtractionConfidence: &extractionConfidence,
-			CreatedAt:            baseCreatedAt,
+			MaxCPEvaluations: []PokemonResultMaxCPEvaluationRecord{
+				{
+					MaxCP:              1500,
+					EvaluatedSpeciesID: "machoke",
+					BestLevel:          23.5,
+					BestCP:             1498,
+					StatProduct:        1567890.12,
+					Rank:               143,
+					Percentage:         93.32,
+				},
+				{
+					MaxCP:              2500,
+					EvaluatedSpeciesID: "machamp",
+					BestLevel:          39.0,
+					BestCP:             2499,
+					StatProduct:        2789012.34,
+					Rank:               98,
+					Percentage:         96.11,
+				},
+			},
+			CreatedAt: baseCreatedAt,
 		},
 		{
 			ID:                   "result-2",
@@ -799,6 +873,7 @@ func TestListPokemonResultsBySessionReturnsSessionScopedDeterministicRowsAndNull
 			EndMS:                nil,
 			FrameTimestampMS:     nil,
 			ExtractionConfidence: nil,
+			MaxCPEvaluations:     nil,
 			CreatedAt:            baseCreatedAt,
 		},
 		{
@@ -821,7 +896,18 @@ func TestListPokemonResultsBySessionReturnsSessionScopedDeterministicRowsAndNull
 			EndMS:                nil,
 			FrameTimestampMS:     nil,
 			ExtractionConfidence: nil,
-			CreatedAt:            laterCreatedAt,
+			MaxCPEvaluations: []PokemonResultMaxCPEvaluationRecord{
+				{
+					MaxCP:              500,
+					EvaluatedSpeciesID: "ivysaur",
+					BestLevel:          10.0,
+					BestCP:             499,
+					StatProduct:        543210.0,
+					Rank:               12,
+					Percentage:         99.01,
+				},
+			},
+			CreatedAt: laterCreatedAt,
 		},
 	}
 	for idx := range expected {
@@ -1107,6 +1193,7 @@ func TestResolvePendingReadingFinalizesResultAndLocksReading(t *testing.T) {
 	}
 
 	assertRowCount(t, store.db, "appraisal_results", "job_id", "job-a", 1)
+	assertRowCount(t, store.db, "appraisal_result_pvp_eval_queue", "appraisal_result_id", result.ID, 1)
 }
 
 func TestResolvePendingReadingReturnsLockedForAlreadyResolvedReading(t *testing.T) {
@@ -1364,6 +1451,19 @@ type seededAppraisalResultRow struct {
 	CreatedAt            time.Time
 }
 
+type seededPvPEvaluationRow struct {
+	ID                 string
+	AppraisalResultID  string
+	MaxCP              int
+	EvaluatedSpeciesID string
+	BestLevel          float64
+	BestCP             int
+	StatProduct        float64
+	RankPosition       int
+	Percentage         float64
+	CreatedAt          time.Time
+}
+
 type seededPendingReadingRow struct {
 	ID                   string
 	JobID                string
@@ -1540,6 +1640,33 @@ INSERT INTO appraisal_results(
 	}
 }
 
+func seedPvPEvaluationRow(t *testing.T, db *sql.DB, row seededPvPEvaluationRow) {
+	t.Helper()
+
+	const insertEvaluation = `
+INSERT INTO appraisal_result_pvp_evaluations(
+	id, appraisal_result_id, max_cp, evaluated_species_id, best_level, best_cp,
+	stat_product, rank_position, percentage, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
+
+	if _, err := db.ExecContext(
+		context.Background(),
+		insertEvaluation,
+		row.ID,
+		row.AppraisalResultID,
+		row.MaxCP,
+		row.EvaluatedSpeciesID,
+		row.BestLevel,
+		row.BestCP,
+		row.StatProduct,
+		row.RankPosition,
+		row.Percentage,
+		row.CreatedAt.UTC().Format(time.RFC3339Nano),
+	); err != nil {
+		t.Fatalf("expected pvp evaluation seed insert to succeed: %v", err)
+	}
+}
+
 func seedPendingReadingRow(t *testing.T, db *sql.DB, row seededPendingReadingRow) {
 	t.Helper()
 
@@ -1690,6 +1817,86 @@ func assertPokemonResultRecordEqual(t *testing.T, index int, expected PokemonRes
 	assertOptionalInt64PointerEqual(t, index, "EndMS", expected.EndMS, actual.EndMS)
 	assertOptionalInt64PointerEqual(t, index, "FrameTimestampMS", expected.FrameTimestampMS, actual.FrameTimestampMS)
 	assertOptionalFloat64PointerEqual(t, index, "ExtractionConfidence", expected.ExtractionConfidence, actual.ExtractionConfidence)
+	assertPokemonResultMaxCPEvaluationRecordsEqual(t, index, expected.MaxCPEvaluations, actual.MaxCPEvaluations)
+}
+
+func assertPokemonResultMaxCPEvaluationRecordsEqual(
+	t *testing.T,
+	index int,
+	expected []PokemonResultMaxCPEvaluationRecord,
+	actual []PokemonResultMaxCPEvaluationRecord,
+) {
+	t.Helper()
+
+	if len(actual) != len(expected) {
+		t.Fatalf("result[%d]: expected %d max cp evaluations, got %d", index, len(expected), len(actual))
+	}
+
+	for i := range expected {
+		if actual[i].MaxCP != expected[i].MaxCP {
+			t.Fatalf(
+				"result[%d].maxCpEvaluations[%d]: expected MaxCP %d, got %d",
+				index,
+				i,
+				expected[i].MaxCP,
+				actual[i].MaxCP,
+			)
+		}
+		if actual[i].EvaluatedSpeciesID != expected[i].EvaluatedSpeciesID {
+			t.Fatalf(
+				"result[%d].maxCpEvaluations[%d]: expected EvaluatedSpeciesID %q, got %q",
+				index,
+				i,
+				expected[i].EvaluatedSpeciesID,
+				actual[i].EvaluatedSpeciesID,
+			)
+		}
+		if actual[i].BestLevel != expected[i].BestLevel {
+			t.Fatalf(
+				"result[%d].maxCpEvaluations[%d]: expected BestLevel %v, got %v",
+				index,
+				i,
+				expected[i].BestLevel,
+				actual[i].BestLevel,
+			)
+		}
+		if actual[i].BestCP != expected[i].BestCP {
+			t.Fatalf(
+				"result[%d].maxCpEvaluations[%d]: expected BestCP %d, got %d",
+				index,
+				i,
+				expected[i].BestCP,
+				actual[i].BestCP,
+			)
+		}
+		if actual[i].StatProduct != expected[i].StatProduct {
+			t.Fatalf(
+				"result[%d].maxCpEvaluations[%d]: expected StatProduct %v, got %v",
+				index,
+				i,
+				expected[i].StatProduct,
+				actual[i].StatProduct,
+			)
+		}
+		if actual[i].Rank != expected[i].Rank {
+			t.Fatalf(
+				"result[%d].maxCpEvaluations[%d]: expected Rank %d, got %d",
+				index,
+				i,
+				expected[i].Rank,
+				actual[i].Rank,
+			)
+		}
+		if actual[i].Percentage != expected[i].Percentage {
+			t.Fatalf(
+				"result[%d].maxCpEvaluations[%d]: expected Percentage %v, got %v",
+				index,
+				i,
+				expected[i].Percentage,
+				actual[i].Percentage,
+			)
+		}
+	}
 }
 
 func assertOptionalFloat64PointerEqual(t *testing.T, index int, field string, expected *float64, actual *float64) {

@@ -11,8 +11,85 @@
     "errorMessageContains": null
   },
   "pokemonExpectation": {
-    "minResults": 1,
-    "mustContain": [],
+    "minResults": 2,
+    "mustContain": [
+      {
+        "speciesName": "Horsea",
+        "cp": 288,
+        "hp": 51,
+        "ivs": {
+          "attack": 0,
+          "defense": 8,
+          "stamina": 15
+        },
+        "maxCpEvaluationsMinCount": 9,
+        "maxCpEvaluationsMustContain": [
+          {
+            "maxCp": 500,
+            "evaluatedSpeciesId": "horsea",
+            "bestCp": 498,
+            "bestLevelMin": 18.5,
+            "bestLevelMax": 19.5,
+            "rankMax": 50,
+            "percentageMin": 98.0,
+            "percentageMax": 98.1
+          },
+          {
+            "maxCp": 1500,
+            "evaluatedSpeciesId": "kingdra",
+            "bestCp": 1480,
+            "bestLevelMin": 21.0,
+            "bestLevelMax": 22.0,
+            "rankMax": 300,
+            "percentageMin": 97.4,
+            "percentageMax": 97.5
+          },
+          {
+            "maxCp": 2500,
+            "evaluatedSpeciesId": "kingdra",
+            "bestCp": 2487,
+            "bestLevelMin": 42.0,
+            "bestLevelMax": 43.0,
+            "rankMax": 150,
+            "percentageMin": 98.4,
+            "percentageMax": 98.6
+          }
+        ]
+      },
+      {
+        "speciesName": "Hoppip",
+        "cp": 376,
+        "hp": 81,
+        "ivs": {
+          "attack": 0,
+          "defense": 15,
+          "stamina": 5
+        },
+        "maxCpEvaluationsMinCount": 9,
+        "maxCpEvaluationsMustContain": [
+          {
+            "maxCp": 500,
+            "evaluatedSpeciesId": "skiploom",
+            "bestCp": 498,
+            "bestLevelMin": 21.0,
+            "bestLevelMax": 22.0,
+            "rankMax": 100,
+            "percentageMin": 97.8,
+            "percentageMax": 98.0
+          },
+          {
+            "maxCp": 1500,
+            "evaluatedSpeciesId": "jumpluff",
+            "bestCp": 1496,
+            "bestLevelMin": 44.0,
+            "bestLevelMax": 45.0,
+            "rankMax": 150,
+            "percentageMin": 98.4,
+            "percentageMax": 98.6
+          }
+        ]
+      }
+    ],
     "mustNotContainSpecies": []
   }
 }

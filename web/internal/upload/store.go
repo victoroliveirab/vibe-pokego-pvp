@@ -211,6 +211,35 @@ CREATE TABLE IF NOT EXISTS appraisal_results (
 	FOREIGN KEY(upload_id) REFERENCES uploads(id)
 );
 
+CREATE TABLE IF NOT EXISTS appraisal_result_pvp_evaluations (
+	id TEXT PRIMARY KEY,
+	appraisal_result_id TEXT NOT NULL,
+	max_cp INTEGER NOT NULL,
+	evaluated_species_id TEXT NOT NULL,
+	best_level REAL NOT NULL,
+	best_cp INTEGER NOT NULL,
+	stat_product REAL NOT NULL,
+	rank_position INTEGER NOT NULL,
+	percentage REAL NOT NULL,
+	created_at TEXT NOT NULL,
+	UNIQUE(appraisal_result_id, max_cp, evaluated_species_id),
+	FOREIGN KEY(appraisal_result_id) REFERENCES appraisal_results(id)
+);
+
+CREATE TABLE IF NOT EXISTS appraisal_result_pvp_eval_queue (
+	id TEXT PRIMARY KEY,
+	appraisal_result_id TEXT NOT NULL,
+	status TEXT NOT NULL,
+	retry_count INTEGER NOT NULL DEFAULT 0,
+	last_error TEXT NULL,
+	locked INTEGER NOT NULL DEFAULT 0,
+	next_retry_at TEXT NULL,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	UNIQUE(appraisal_result_id),
+	FOREIGN KEY(appraisal_result_id) REFERENCES appraisal_results(id)
+);
+
 CREATE TABLE IF NOT EXISTS appraisal_pending_readings (
 	id TEXT PRIMARY KEY,
 	job_id TEXT NOT NULL,
@@ -316,6 +345,10 @@ CREATE INDEX IF NOT EXISTS idx_appraisal_candidates_session_id ON appraisal_cand
 CREATE INDEX IF NOT EXISTS idx_appraisal_results_job_id ON appraisal_results(job_id);
 CREATE INDEX IF NOT EXISTS idx_appraisal_results_upload_id ON appraisal_results(upload_id);
 CREATE INDEX IF NOT EXISTS idx_appraisal_results_session_id ON appraisal_results(session_id);
+CREATE INDEX IF NOT EXISTS idx_appraisal_result_pvp_evals_result_id ON appraisal_result_pvp_evaluations(appraisal_result_id);
+CREATE INDEX IF NOT EXISTS idx_appraisal_result_pvp_evals_species_id ON appraisal_result_pvp_evaluations(evaluated_species_id);
+CREATE INDEX IF NOT EXISTS idx_appraisal_result_pvp_eval_queue_status_next_retry ON appraisal_result_pvp_eval_queue(status, next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_appraisal_result_pvp_eval_queue_result_id ON appraisal_result_pvp_eval_queue(appraisal_result_id);
 CREATE INDEX IF NOT EXISTS idx_appraisal_pending_readings_job_id ON appraisal_pending_readings(job_id);
 CREATE INDEX IF NOT EXISTS idx_appraisal_pending_readings_session_id ON appraisal_pending_readings(session_id);
 CREATE INDEX IF NOT EXISTS idx_appraisal_pending_species_options_pending_reading_id ON appraisal_pending_species_options(pending_reading_id);
@@ -666,7 +699,66 @@ ORDER BY created_at ASC, id ASC;`
 		return nil, fmt.Errorf("iterate pokemon results rows: %w", err)
 	}
 
+	if len(results) == 0 {
+		return results, nil
+	}
+
+	evaluationsByResultID, err := s.listPokemonResultMaxCPEvaluationsBySession(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range results {
+		resultEvaluations := evaluationsByResultID[results[i].ID]
+		results[i].MaxCPEvaluations = append([]PokemonResultMaxCPEvaluationRecord(nil), resultEvaluations...)
+	}
+
 	return results, nil
+}
+
+func (s *sqliteStore) listPokemonResultMaxCPEvaluationsBySession(
+	ctx context.Context,
+	sessionID string,
+) (map[string][]PokemonResultMaxCPEvaluationRecord, error) {
+	const query = `
+SELECT e.appraisal_result_id, e.max_cp, e.evaluated_species_id, e.best_level, e.best_cp,
+       e.stat_product, e.rank_position, e.percentage
+FROM appraisal_result_pvp_evaluations e
+JOIN appraisal_results r ON r.id = e.appraisal_result_id
+WHERE r.session_id = ?
+ORDER BY e.appraisal_result_id ASC, e.max_cp ASC, e.evaluated_species_id ASC;`
+
+	rows, err := s.db.QueryContext(ctx, query, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("query pokemon result max cp evaluations by session: %w", err)
+	}
+	defer rows.Close()
+
+	evaluationsByResultID := make(map[string][]PokemonResultMaxCPEvaluationRecord)
+	for rows.Next() {
+		var appraisalResultID string
+		var record PokemonResultMaxCPEvaluationRecord
+		if err := rows.Scan(
+			&appraisalResultID,
+			&record.MaxCP,
+			&record.EvaluatedSpeciesID,
+			&record.BestLevel,
+			&record.BestCP,
+			&record.StatProduct,
+			&record.Rank,
+			&record.Percentage,
+		); err != nil {
+			return nil, fmt.Errorf("scan pokemon result max cp evaluation row: %w", err)
+		}
+
+		evaluationsByResultID[appraisalResultID] = append(evaluationsByResultID[appraisalResultID], record)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pokemon result max cp evaluation rows: %w", err)
+	}
+
+	return evaluationsByResultID, nil
 }
 
 // ListPendingReadingsBySession returns unresolved pending readings with ranked options for one session.
@@ -1013,6 +1105,28 @@ INSERT INTO appraisal_results(
 		nowRaw,
 	); err != nil {
 		return PokemonResultRecord{}, fmt.Errorf("insert resolved appraisal result: %w", err)
+	}
+
+	queueID, err := newID()
+	if err != nil {
+		return PokemonResultRecord{}, err
+	}
+
+	const insertPVPEvaluationQueueQuery = `
+INSERT OR IGNORE INTO appraisal_result_pvp_eval_queue(
+	id, appraisal_result_id, status, retry_count, last_error, locked, next_retry_at, created_at, updated_at
+) VALUES (?, ?, ?, 0, NULL, 0, NULL, ?, ?);`
+
+	if _, err := tx.ExecContext(
+		ctx,
+		insertPVPEvaluationQueueQuery,
+		queueID,
+		resultID,
+		"PENDING",
+		nowRaw,
+		nowRaw,
+	); err != nil {
+		return PokemonResultRecord{}, fmt.Errorf("insert pvp evaluation queue row: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

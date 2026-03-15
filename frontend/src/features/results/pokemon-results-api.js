@@ -99,8 +99,41 @@ function normalizeResultRecord(record) {
     level: normalizeLevel(record.level, record),
     source: normalizeSource(record.source, record),
     confidence: normalizeOptionalNullableNumber(record.confidence, "confidence", record),
+    maxCpEvaluations: normalizeMaxCPEvaluations(record.maxCpEvaluations, record),
     createdAt: normalizeRequiredString(record.createdAt, "createdAt", record),
   };
+}
+
+function normalizeMaxCPEvaluation(value, payload) {
+  if (!value || typeof value !== "object") {
+    throw invalidResponse("Pokemon results response had an invalid maxCpEvaluations item.", payload);
+  }
+
+  return {
+    maxCp: normalizeRequiredNumber(value.maxCp, "maxCpEvaluations.maxCp", payload),
+    evaluatedSpeciesId: normalizeRequiredString(
+      value.evaluatedSpeciesId,
+      "maxCpEvaluations.evaluatedSpeciesId",
+      payload,
+    ),
+    bestLevel: normalizeRequiredNumber(value.bestLevel, "maxCpEvaluations.bestLevel", payload),
+    bestCp: normalizeRequiredNumber(value.bestCp, "maxCpEvaluations.bestCp", payload),
+    statProduct: normalizeRequiredNumber(value.statProduct, "maxCpEvaluations.statProduct", payload),
+    rank: normalizeRequiredNumber(value.rank, "maxCpEvaluations.rank", payload),
+    percentage: normalizeRequiredNumber(value.percentage, "maxCpEvaluations.percentage", payload),
+  };
+}
+
+function normalizeMaxCPEvaluations(value, payload) {
+  if (value === null || value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw invalidResponse("Pokemon results response had an invalid maxCpEvaluations array.", payload);
+  }
+
+  return value.map((entry) => normalizeMaxCPEvaluation(entry, payload));
 }
 
 function normalizeResultsResponse(payload) {

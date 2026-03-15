@@ -4557,7 +4557,7 @@ func (p imageProcessor) insertAcceptedResult(
 		levelMethod = appraisal.LevelMethodUnknown
 	}
 
-	_, err := store.InsertResult(ctx, appraisal.InsertResultParams{
+	insertedResult, err := store.InsertResult(ctx, appraisal.InsertResultParams{
 		JobID:                job.ID,
 		UploadID:             job.UploadID,
 		SessionID:            sessionID,
@@ -4577,6 +4577,10 @@ func (p imageProcessor) insertAcceptedResult(
 	})
 	if err != nil {
 		return fmt.Errorf("insert appraisal result: %w", err)
+	}
+
+	if err := store.EnqueueResultForPvPEvaluation(ctx, insertedResult.ID, insertedResult.CreatedAt); err != nil {
+		return fmt.Errorf("enqueue appraisal result for pvp evaluation: %w", err)
 	}
 	return nil
 }
