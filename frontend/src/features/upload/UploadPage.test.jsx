@@ -36,7 +36,12 @@ function createDeferred() {
 }
 
 function uploadInput() {
-  return screen.getByLabelText("Choose image or video");
+  const input = document.querySelector("#media-upload");
+  if (!input) {
+    throw new Error("Media upload input not found");
+  }
+
+  return input;
 }
 
 function createJobStatus({
