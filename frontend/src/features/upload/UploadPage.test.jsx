@@ -298,10 +298,6 @@ describe("upload page job monitoring", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Job ID: job-2")).toBeTruthy();
-    });
-
-    await waitFor(() => {
       expect(screen.getByText("Processing complete")).toBeTruthy();
     });
 
@@ -372,6 +368,48 @@ describe("upload page job monitoring", () => {
     });
 
     expect(screen.getByText("Retry code: JOB_RETRY_NOT_ALLOWED")).toBeTruthy();
+    expect(screen.queryByText("Job ID: job-1")).toBeNull();
+  });
+
+  it("keeps IDs hidden by default and shows them when debug mode is enabled", async () => {
+    const uploadApi = {
+      submitUpload: vi.fn().mockResolvedValue({
+        uploadId: "upload-1",
+        jobId: "job-1",
+      }),
+    };
+
+    const pokemonResultsApi = createPokemonResultsApi();
+
+    render(
+      <UploadPage
+        jobApi={{ getJobStatus: vi.fn() }}
+        pokemonResultsApi={pokemonResultsApi}
+        uploadApi={uploadApi}
+        useSessionHook={createSessionHook()}
+      />,
+    );
+
+    const debugCheckbox = screen.getByLabelText("Debug mode");
+    expect(debugCheckbox.checked).toBe(false);
+    expect(screen.queryByText("Session session-...")).toBeNull();
+
+    const file = new File(["image"], "screenshot.png", { type: "image/png" });
+    fireEvent.change(uploadInput(), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit Upload" }));
+
+    await waitFor(() => {
+      expect(uploadApi.submitUpload).toHaveBeenCalledTimes(1);
+    });
+
+    expect(screen.queryByText("Upload ID: upload-1")).toBeNull();
+    expect(screen.queryByText("Job ID: job-1")).toBeNull();
+
+    fireEvent.click(debugCheckbox);
+
+    expect(debugCheckbox.checked).toBe(true);
+    expect(screen.getByText("Session session-...")).toBeTruthy();
+    expect(screen.getByText("Upload ID: upload-1")).toBeTruthy();
     expect(screen.getByText("Job ID: job-1")).toBeTruthy();
   });
 

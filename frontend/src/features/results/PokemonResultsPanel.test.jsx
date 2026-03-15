@@ -75,6 +75,43 @@ function createProps(overrides = {}) {
   };
 }
 
+function createPendingReading(overrides = {}) {
+  return {
+    id: "reading-1",
+    jobId: "job-1",
+    uploadId: "upload-1",
+    cp: 712,
+    hp: 120,
+    ivs: {
+      attack: 10,
+      defense: 11,
+      stamina: 12,
+    },
+    level: {
+      estimate: 23.5,
+      confidence: 0.72,
+      method: "ARC_POSITION",
+    },
+    source: {
+      type: "VIDEO",
+      frameTimestampMs: 300,
+    },
+    confidence: 0.86,
+    status: "PENDING_USER_DEDUP",
+    createdAt: "2026-03-06T17:00:00Z",
+    options: [
+      {
+        id: "option-1",
+        speciesName: "Darumaka",
+        matchMode: "exact",
+        matchDistance: 0,
+        optionRank: 1,
+      },
+    ],
+    ...overrides,
+  };
+}
+
 describe("pokemon results panel", () => {
   it("renders a loading state while waiting for the first fetch", () => {
     render(
@@ -126,6 +163,59 @@ describe("pokemon results panel", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  it("hides IDs by default", () => {
+    render(
+      <PokemonResultsPanel
+        {...createProps({
+          pendingReadings: [createPendingReading()],
+          phase: pokemonResultsPhases.SUCCESS,
+          results: [createResult()],
+        })}
+      />,
+    );
+
+    const resultCard = screen.getByRole("heading", { name: "Machop" }).closest("article");
+    expect(resultCard).toBeTruthy();
+
+    expect(screen.queryByText("Result ID: result-1")).toBeNull();
+    expect(screen.queryByText("Reading reading-1")).toBeNull();
+    expect(screen.queryByText("Job job-1 | Upload upload-1")).toBeNull();
+    expect(within(resultCard).queryByText("Stardust")).toBeNull();
+    expect(within(resultCard).queryByText("Source")).toBeNull();
+    expect(within(resultCard).queryByText("Confidence")).toBeNull();
+    expect(within(resultCard).queryByText("Created")).toBeNull();
+    expect(within(resultCard).getByText("Level")).toBeTruthy();
+    expect(within(resultCard).getByText("23.5")).toBeTruthy();
+  });
+
+  it("shows IDs when debug mode is enabled", () => {
+    render(
+      <PokemonResultsPanel
+        {...createProps({
+          isDebugMode: true,
+          pendingReadings: [createPendingReading()],
+          phase: pokemonResultsPhases.SUCCESS,
+          results: [createResult()],
+        })}
+      />,
+    );
+
+    const resultCard = screen.getByRole("heading", { name: "Machop" }).closest("article");
+    expect(resultCard).toBeTruthy();
+
+    expect(screen.getByText("Result ID: result-1")).toBeTruthy();
+    expect(within(resultCard).getByText("Best fit: machamp @ 2500 CP (96.11%, rank 98)")).toBeTruthy();
+    expect(screen.getByText("Reading reading-1")).toBeTruthy();
+    expect(screen.getByText("Job job-1 | Upload upload-1")).toBeTruthy();
+    expect(within(resultCard).getByText("Stardust")).toBeTruthy();
+    expect(within(resultCard).getByText("Source")).toBeTruthy();
+    expect(within(resultCard).getByText("Confidence")).toBeTruthy();
+    expect(within(resultCard).getByText("Created")).toBeTruthy();
+    expect(
+      screen.getAllByText("Video | Upload upload-1 | Job job-1 | Time 12000-15500 ms | Frame 13200 ms").length,
+    ).toBeGreaterThan(0);
+  });
+
   it("renders tier chips in row headers and null-safe fallbacks", () => {
     render(
       <PokemonResultsPanel
@@ -171,8 +261,13 @@ describe("pokemon results panel", () => {
 
     expect(screen.getAllByLabelText("Best tier for row Machop: S").length).toBeGreaterThan(0);
     expect(screen.getAllByLabelText("Best tier for row Pikachu: N/A").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Best fit: machamp @ 2500 CP (96.11%, rank 98)").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Best fit: N/A").length).toBeGreaterThan(0);
+
+    const machopCard = screen.getByRole("heading", { name: "Machop" }).closest("article");
+    const pikachuCard = screen.getByRole("heading", { name: "Pikachu" }).closest("article");
+    expect(machopCard).toBeTruthy();
+    expect(pikachuCard).toBeTruthy();
+    expect(within(machopCard).queryByText("Best fit: machamp @ 2500 CP (96.11%, rank 98)")).toBeNull();
+    expect(within(pikachuCard).queryByText("Best fit: N/A")).toBeNull();
 
     const machopToggle = screen.getAllByRole("button", { name: "Toggle league breakdown row for Machop" })[0];
     const pikachuToggle = screen.getAllByRole("button", { name: "Toggle league breakdown row for Pikachu" })[0];
@@ -260,6 +355,118 @@ describe("pokemon results panel", () => {
     expect(within(region).getByLabelText("Tier C for Seadra")).toBeTruthy();
     expect(within(region).getByLabelText("Tier D for Kingdra")).toBeTruthy();
     expect(within(region).getByLabelText("Tier F for Horsea")).toBeTruthy();
+  });
+
+  it("defaults to the league tab with the best percentage", () => {
+    render(
+      <PokemonResultsPanel
+        {...createProps({
+          phase: pokemonResultsPhases.SUCCESS,
+          results: [
+            createResult({
+              speciesName: "Rhyhorn",
+              maxCpEvaluations: [
+                {
+                  maxCp: 500,
+                  evaluatedSpeciesId: "littlemon",
+                  bestLevel: 10,
+                  bestCp: 500,
+                  statProduct: 1000,
+                  rank: 50,
+                  percentage: 95,
+                },
+                {
+                  maxCp: 1500,
+                  evaluatedSpeciesId: "greatmon",
+                  bestLevel: 25,
+                  bestCp: 1500,
+                  statProduct: 2000,
+                  rank: 50,
+                  percentage: 96,
+                },
+                {
+                  maxCp: 2500,
+                  evaluatedSpeciesId: "ultramon",
+                  bestLevel: 40,
+                  bestCp: 2500,
+                  statProduct: 3000,
+                  rank: 50,
+                  percentage: 97,
+                },
+              ],
+            }),
+          ],
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle league breakdown row for Rhyhorn" }));
+
+    const region = screen.getByRole("region", { name: "League breakdown row for Rhyhorn" });
+    const ultraTab = within(region).getByRole("tab", { name: "Ultra (1)" });
+    expect(ultraTab.getAttribute("aria-pressed")).toBe("true");
+
+    const entries = within(region).getAllByRole("listitem");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].textContent).toContain("Ultramon");
+  });
+
+  it("resets to best tab when closing and reopening a row accordion", () => {
+    render(
+      <PokemonResultsPanel
+        {...createProps({
+          phase: pokemonResultsPhases.SUCCESS,
+          results: [
+            createResult({
+              speciesName: "Rhyhorn",
+              maxCpEvaluations: [
+                {
+                  maxCp: 500,
+                  evaluatedSpeciesId: "littlemon",
+                  bestLevel: 10,
+                  bestCp: 500,
+                  statProduct: 1000,
+                  rank: 50,
+                  percentage: 95,
+                },
+                {
+                  maxCp: 1500,
+                  evaluatedSpeciesId: "greatmon",
+                  bestLevel: 25,
+                  bestCp: 1500,
+                  statProduct: 2000,
+                  rank: 50,
+                  percentage: 96,
+                },
+                {
+                  maxCp: 2500,
+                  evaluatedSpeciesId: "ultramon",
+                  bestLevel: 40,
+                  bestCp: 2500,
+                  statProduct: 3000,
+                  rank: 50,
+                  percentage: 97,
+                },
+              ],
+            }),
+          ],
+        })}
+      />,
+    );
+
+    const toggle = screen.getByRole("button", { name: "Toggle league breakdown row for Rhyhorn" });
+
+    fireEvent.click(toggle);
+    let region = screen.getByRole("region", { name: "League breakdown row for Rhyhorn" });
+
+    fireEvent.click(within(region).getByRole("tab", { name: "Little (1)" }));
+    expect(within(region).getByRole("tab", { name: "Little (1)" }).getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+
+    region = screen.getByRole("region", { name: "League breakdown row for Rhyhorn" });
+    expect(within(region).getByRole("tab", { name: "Ultra (1)" }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("allows multiple expanded rows simultaneously", () => {
@@ -371,41 +578,7 @@ describe("pokemon results panel", () => {
       <PokemonResultsPanel
         {...createProps({
           onResolvePendingOption,
-          pendingReadings: [
-            {
-              id: "reading-1",
-              jobId: "job-1",
-              uploadId: "upload-1",
-              cp: 712,
-              hp: 120,
-              ivs: {
-                attack: 10,
-                defense: 11,
-                stamina: 12,
-              },
-              level: {
-                estimate: 23.5,
-                confidence: 0.72,
-                method: "ARC_POSITION",
-              },
-              source: {
-                type: "VIDEO",
-                frameTimestampMs: 300,
-              },
-              confidence: 0.86,
-              status: "PENDING_USER_DEDUP",
-              createdAt: "2026-03-06T17:00:00Z",
-              options: [
-                {
-                  id: "option-1",
-                  speciesName: "Darumaka",
-                  matchMode: "exact",
-                  matchDistance: 0,
-                  optionRank: 1,
-                },
-              ],
-            },
-          ],
+          pendingReadings: [createPendingReading()],
         })}
       />,
     );

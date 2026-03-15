@@ -29,7 +29,16 @@ describe("upload status panel", () => {
     expect(screen.getByText("Queued for processing")).toBeTruthy();
     expect(screen.getByText("Stage: Waiting for worker")).toBeTruthy();
     expect(screen.getByText("Progress: 0%")).toBeTruthy();
+    expect(screen.queryByText("upload-123")).toBeNull();
+    expect(screen.queryByText("job-123")).toBeNull();
+  });
+
+  it("shows IDs when debug mode is enabled", () => {
+    render(<UploadStatusPanel {...createPanelProps({ isDebugMode: true, jobStatus: "QUEUED" })} />);
+
+    expect(screen.getByText("Upload ID")).toBeTruthy();
     expect(screen.getByText("upload-123")).toBeTruthy();
+    expect(screen.getByText("Job ID")).toBeTruthy();
     expect(screen.getByText("job-123")).toBeTruthy();
   });
 

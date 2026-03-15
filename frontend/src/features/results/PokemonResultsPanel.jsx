@@ -51,6 +51,14 @@ function formatLevel(level) {
   return `${estimate} (${method}, ${confidence})`;
 }
 
+function formatLevelEstimate(level) {
+  if (!level || typeof level !== "object") {
+    return "N/A";
+  }
+
+  return formatOptionalNumber(level.estimate);
+}
+
 function formatSourceType(sourceType) {
   if (sourceType === "VIDEO") {
     return "Video";
@@ -75,21 +83,27 @@ function formatTimeRange(timeRangeMs) {
   return "N/A";
 }
 
-function formatSourceContext(source) {
+function formatSourceContext(source, { isDebugMode = false } = {}) {
   if (!source || typeof source !== "object") {
     return "N/A";
   }
 
   const type = formatSourceType(source.type);
-  const uploadId = source.uploadId || "N/A";
-  const jobId = source.jobId || "N/A";
   const timeRange = formatTimeRange(source.timeRangeMs);
   const frameTimestamp =
     typeof source.frameTimestampMs === "number" && !Number.isNaN(source.frameTimestampMs)
       ? `${source.frameTimestampMs} ms`
       : "N/A";
+  const sourceParts = [type];
 
-  return `${type} | Upload ${uploadId} | Job ${jobId} | Time ${timeRange} | Frame ${frameTimestamp}`;
+  if (isDebugMode) {
+    sourceParts.push(`Upload ${source.uploadId || "N/A"}`);
+    sourceParts.push(`Job ${source.jobId || "N/A"}`);
+  }
+
+  sourceParts.push(`Time ${timeRange}`);
+  sourceParts.push(`Frame ${frameTimestamp}`);
+  return sourceParts.join(" | ");
 }
 
 function formatIVs(ivs) {
@@ -236,15 +250,49 @@ function buildLeagueBreakdown(maxCPEvaluations) {
 }
 
 function selectDefaultLeagueTab(byLeague) {
-  if (Array.isArray(byLeague.great) && byLeague.great.length > 0) {
-    return "great";
+  const candidates = leagueTabs
+    .map((tab, orderIndex) => {
+      const entries = Array.isArray(byLeague[tab.key]) ? byLeague[tab.key] : [];
+      if (entries.length === 0) {
+        return null;
+      }
+
+      const bestEntry = [...entries].sort((left, right) => {
+        if (left.percentage !== right.percentage) {
+          return right.percentage - left.percentage;
+        }
+        if (left.rank !== right.rank) {
+          return left.rank - right.rank;
+        }
+        return 0;
+      })[0];
+
+      return {
+        league: tab.key,
+        orderIndex,
+        percentage:
+          typeof bestEntry.percentage === "number" && !Number.isNaN(bestEntry.percentage)
+            ? bestEntry.percentage
+            : Number.NEGATIVE_INFINITY,
+        rank: isValidRank(bestEntry.rank) ? bestEntry.rank : Number.POSITIVE_INFINITY,
+      };
+    })
+    .filter((candidate) => candidate !== null);
+
+  if (candidates.length > 0) {
+    candidates.sort((left, right) => {
+      if (left.percentage !== right.percentage) {
+        return right.percentage - left.percentage;
+      }
+      if (left.rank !== right.rank) {
+        return left.rank - right.rank;
+      }
+      return left.orderIndex - right.orderIndex;
+    });
+
+    return candidates[0].league;
   }
-  if (Array.isArray(byLeague.little) && byLeague.little.length > 0) {
-    return "little";
-  }
-  if (Array.isArray(byLeague.ultra) && byLeague.ultra.length > 0) {
-    return "ultra";
-  }
+
   return "great";
 }
 
@@ -311,11 +359,10 @@ function LeagueBreakdownPanel({ activeLeague, byLeague, onSelectLeague, regionLa
           return (
             <button
               aria-pressed={isActive}
-              className={`w-full rounded-full border px-2 py-1 text-[11px] font-semibold transition sm:w-auto sm:px-3 sm:text-xs ${
-                isActive
-                  ? "border-slate-200 bg-slate-100 text-slate-900"
-                  : "border-slate-600 bg-slate-800/60 text-slate-300 hover:bg-slate-700"
-              }`}
+              className={`w-full rounded-full border px-2 py-1 text-[11px] font-semibold transition sm:w-auto sm:px-3 sm:text-xs ${isActive
+                ? "border-slate-200 bg-slate-100 text-slate-900"
+                : "border-slate-600 bg-slate-800/60 text-slate-300 hover:bg-slate-700"
+                }`}
               key={tab.key}
               onClick={() => {
                 onSelectLeague(tab.key);
@@ -338,7 +385,6 @@ function LeagueBreakdownPanel({ activeLeague, byLeague, onSelectLeague, regionLa
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-slate-100">
                   {entry.speciesDisplayName}
-                  <span className="ml-1 text-xs text-slate-400">({entry.evaluatedSpeciesId})</span>
                 </p>
                 <TierChip ariaLabel={`Tier ${entry.tier} for ${entry.speciesDisplayName}`} tier={entry.tier} />
               </div>
@@ -346,7 +392,7 @@ function LeagueBreakdownPanel({ activeLeague, byLeague, onSelectLeague, regionLa
               <dl className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-200 md:grid-cols-4">
                 <div>
                   <dt className="uppercase tracking-wide text-slate-400">Target CP</dt>
-                  <dd>{entry.maxCp}</dd>
+                  <dd>{entry.bestCp}</dd>
                 </div>
                 <div>
                   <dt className="uppercase tracking-wide text-slate-400">Rank</dt>
@@ -393,13 +439,15 @@ function formatPendingOptionHint(option) {
   return `${mode}, distance ${distance}, rank ${rank}`;
 }
 
-function PendingReadingCard({ onResolvePendingOption, reading, resolving }) {
+function PendingReadingCard({ isDebugMode, onResolvePendingOption, reading, resolving }) {
   return (
     <article className="rounded-xl border border-amber-700/70 bg-amber-950/40 p-4">
-      <h3 className="text-sm font-semibold text-amber-100">Reading {reading.id}</h3>
-      <p className="mt-1 text-xs text-amber-200/90">
-        Job {reading.jobId} | Upload {reading.uploadId}
-      </p>
+      <h3 className="text-sm font-semibold text-amber-100">{isDebugMode ? `Reading ${reading.id}` : "Reading"}</h3>
+      {isDebugMode ? (
+        <p className="mt-1 text-xs text-amber-200/90">
+          Job {reading.jobId} | Upload {reading.uploadId}
+        </p>
+      ) : null}
       <p className="mt-1 text-xs text-amber-200/90">
         CP {reading.cp} | HP {reading.hp} | IVs {formatIVs(reading.ivs)}
       </p>
@@ -412,30 +460,31 @@ function PendingReadingCard({ onResolvePendingOption, reading, resolving }) {
       <div className="mt-3 space-y-2">
         {Array.isArray(reading.options)
           ? reading.options.map((option) => (
-              <button
-                className="block min-h-11 w-full rounded-lg border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-left text-sm text-amber-50 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={resolving}
-                key={option.id}
-                onClick={() => {
-                  onResolvePendingOption(reading.id, option.id);
-                }}
-                type="button"
-              >
-                <span className="font-semibold">{option.speciesName}</span>
-                <span className="mt-1 block text-xs text-amber-200/80">{formatPendingOptionHint(option)}</span>
-              </button>
-            ))
+            <button
+              className="block min-h-11 w-full rounded-lg border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-left text-sm text-amber-50 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={resolving}
+              key={option.id}
+              onClick={() => {
+                onResolvePendingOption(reading.id, option.id);
+              }}
+              type="button"
+            >
+              <span className="font-semibold">{option.speciesName}</span>
+              <span className="mt-1 block text-xs text-amber-200/80">{formatPendingOptionHint(option)}</span>
+            </button>
+          ))
           : null}
       </div>
     </article>
   );
 }
 
-function ResultCard({ result }) {
+function ResultCard({ isDebugMode, result }) {
   const maxCPEvaluations = normalizeMaxCPEvaluations(result.maxCpEvaluations);
   const leagueBreakdown = buildLeagueBreakdown(maxCPEvaluations);
+  const defaultLeague = selectDefaultLeagueTab(leagueBreakdown.byLeague);
   const [isBreakdownOpen, setIsBreakdownOpen] = useState(false);
-  const [activeLeague, setActiveLeague] = useState(() => selectDefaultLeagueTab(leagueBreakdown.byLeague));
+  const [activeLeague, setActiveLeague] = useState(() => defaultLeague);
   const hasBreakdownEntries = hasLeagueEntries(leagueBreakdown.byLeague);
   const bestTier = leagueBreakdown.bestAvailableTier || "N/A";
 
@@ -445,8 +494,8 @@ function ResultCard({ result }) {
         <h3 className="text-base font-semibold text-slate-100">{result.speciesName}</h3>
         <TierChip ariaLabel={`Best tier for card ${result.speciesName}: ${bestTier}`} tier={bestTier} />
       </div>
-      <p className="mt-1 text-xs text-slate-400">Result ID: {result.id}</p>
-      <p className="mt-2 text-xs text-emerald-200">{formatBestFitSummary(maxCPEvaluations)}</p>
+      {isDebugMode ? <p className="mt-1 text-xs text-slate-400">Result ID: {result.id}</p> : null}
+      {isDebugMode ? <p className="mt-2 text-xs text-emerald-200">{formatBestFitSummary(maxCPEvaluations)}</p> : null}
       <dl className="mt-3 grid grid-cols-2 gap-2 text-sm text-slate-200">
         <div>
           <dt className="text-xs uppercase tracking-wide text-slate-400">CP</dt>
@@ -457,37 +506,45 @@ function ResultCard({ result }) {
           <dd>{result.hp}</dd>
         </div>
         <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-400">Stardust</dt>
-          <dd>{result.powerUpStardustCost}</dd>
+          <dt className="text-xs uppercase tracking-wide text-slate-400">Level</dt>
+          <dd>{formatLevelEstimate(result.level)}</dd>
         </div>
         <div>
           <dt className="text-xs uppercase tracking-wide text-slate-400">IVs</dt>
           <dd>{formatIVs(result.ivs)}</dd>
         </div>
-        <div className="col-span-2">
-          <dt className="text-xs uppercase tracking-wide text-slate-400">Level</dt>
-          <dd>{formatLevel(result.level)}</dd>
-        </div>
-        <div className="col-span-2">
-          <dt className="text-xs uppercase tracking-wide text-slate-400">Source</dt>
-          <dd className="break-all">{formatSourceContext(result.source)}</dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-400">Confidence</dt>
-          <dd>{formatConfidence(result.confidence)}</dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-400">Created</dt>
-          <dd className="break-all">{result.createdAt}</dd>
-        </div>
       </dl>
+
+      {isDebugMode ? (
+        <dl className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-800 pt-3 text-xs text-slate-300">
+          <div>
+            <dt className="uppercase tracking-wide text-slate-400">Stardust</dt>
+            <dd>{result.powerUpStardustCost}</dd>
+          </div>
+          <div>
+            <dt className="uppercase tracking-wide text-slate-400">Confidence</dt>
+            <dd>{formatConfidence(result.confidence)}</dd>
+          </div>
+          <div>
+            <dt className="uppercase tracking-wide text-slate-400">Created</dt>
+            <dd className="break-all">{result.createdAt}</dd>
+          </div>
+          <div className="col-span-2">
+            <dt className="uppercase tracking-wide text-slate-400">Source</dt>
+            <dd className="break-all">{formatSourceContext(result.source, { isDebugMode })}</dd>
+          </div>
+        </dl>
+      ) : null}
 
       {hasBreakdownEntries ? (
         <div className="mt-3">
           <button
             aria-expanded={isBreakdownOpen}
-            className="min-h-10 rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-2 text-xs font-semibold text-slate-100 transition hover:bg-slate-700"
+            className="min-h-10 w-full rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-2 text-xs font-semibold text-slate-100 transition hover:bg-slate-700"
             onClick={() => {
+              if (!isBreakdownOpen) {
+                setActiveLeague(defaultLeague);
+              }
               setIsBreakdownOpen((current) => !current);
             }}
             type="button"
@@ -513,9 +570,10 @@ function ResultCard({ result }) {
 
 export default function PokemonResultsPanel({
   error,
+  isDebugMode = false,
   lastFetchedAt,
   onRetry,
-  onResolvePendingOption = () => {},
+  onResolvePendingOption = () => { },
   pendingReadings = [],
   phase,
   pendingResolveError = null,
@@ -578,6 +636,7 @@ export default function PokemonResultsPanel({
           <div className="mt-3 grid gap-3">
             {normalizedPendingReadings.map((reading) => (
               <PendingReadingCard
+                isDebugMode={isDebugMode}
                 key={reading.id}
                 onResolvePendingOption={onResolvePendingOption}
                 reading={reading}
@@ -610,7 +669,7 @@ export default function PokemonResultsPanel({
 
           <div className="grid gap-3 md:hidden">
             {normalizedResults.map((result) => (
-              <ResultCard key={result.id} result={result} />
+              <ResultCard isDebugMode={isDebugMode} key={result.id} result={result} />
             ))}
           </div>
 
@@ -652,25 +711,31 @@ export default function PokemonResultsPanel({
                             className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md border border-slate-600 bg-slate-800/70 text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                             disabled={!hasBreakdownEntries}
                             onClick={() => {
-                              setExpandedResultIDSet((current) => {
-                                const next = new Set(current);
-                                if (next.has(result.id)) {
+                              if (isExpanded) {
+                                setExpandedResultIDSet((current) => {
+                                  const next = new Set(current);
                                   next.delete(result.id);
-                                } else {
+                                  return next;
+                                });
+                                setRowActiveLeagueByID((current) => {
+                                  if (!Object.prototype.hasOwnProperty.call(current, result.id)) {
+                                    return current;
+                                  }
+                                  const next = { ...current };
+                                  delete next[result.id];
+                                  return next;
+                                });
+                              } else {
+                                setExpandedResultIDSet((current) => {
+                                  const next = new Set(current);
                                   next.add(result.id);
-                                }
-                                return next;
-                              });
-
-                              setRowActiveLeagueByID((current) => {
-                                if (current[result.id]) {
-                                  return current;
-                                }
-                                return {
+                                  return next;
+                                });
+                                setRowActiveLeagueByID((current) => ({
                                   ...current,
                                   [result.id]: defaultLeague,
-                                };
-                              });
+                                }));
+                              }
                             }}
                             type="button"
                           >
@@ -682,7 +747,7 @@ export default function PokemonResultsPanel({
                             <p className="font-medium text-slate-100">{result.speciesName}</p>
                             <TierChip ariaLabel={`Best tier for row ${result.speciesName}: ${bestTier}`} tier={bestTier} />
                           </div>
-                          <p className="text-[11px] text-slate-500">{result.id}</p>
+                          {isDebugMode ? <p className="text-[11px] text-slate-500">{result.id}</p> : null}
                         </td>
                         <td className="px-2 py-2">{result.cp}</td>
                         <td className="px-2 py-2">{result.hp}</td>
@@ -690,7 +755,7 @@ export default function PokemonResultsPanel({
                         <td className="px-2 py-2">{formatIVs(result.ivs)}</td>
                         <td className="px-2 py-2">{formatLevel(result.level)}</td>
                         <td className="px-2 py-2 text-emerald-200">{formatBestFitSummary(maxCPEvaluations)}</td>
-                        <td className="px-2 py-2 break-all">{formatSourceContext(result.source)}</td>
+                        <td className="px-2 py-2 break-all">{formatSourceContext(result.source, { isDebugMode })}</td>
                         <td className="px-2 py-2">{formatConfidence(result.confidence)}</td>
                         <td className="px-2 py-2 break-all">{result.createdAt}</td>
                       </tr>

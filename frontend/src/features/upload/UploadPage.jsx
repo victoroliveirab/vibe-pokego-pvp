@@ -25,17 +25,17 @@ function isTerminalJobStatus(status) {
 function phaseLabel(phase) {
   switch (phase) {
     case uploadFlowPhases.SESSION_LOADING:
-      return "Preparing upload";
+      return "Preparing Upload";
     case uploadFlowPhases.READY:
-      return "Ready to upload";
+      return "Ready to Upload";
     case uploadFlowPhases.UPLOADING:
-      return "Upload in progress";
+      return "Upload in Progress";
     case uploadFlowPhases.SUCCESS:
-      return "Upload received";
+      return "Upload Received";
     case uploadFlowPhases.ERROR:
-      return "Please review";
+      return "Please Review";
     default:
-      return "Getting started";
+      return "Getting Started";
   }
 }
 
@@ -66,6 +66,7 @@ export default function UploadPage({
     pokemonResultsStateReducer,
     initialPokemonResultsState,
   );
+  const [isDebugMode, setIsDebugMode] = useState(false);
   const [resolvingReadingIds, setResolvingReadingIds] = useState([]);
   const [pendingResolveError, setPendingResolveError] = useState(null);
   const { sessionId, isLoading, error: sessionError } = useSessionHook();
@@ -479,9 +480,11 @@ export default function UploadPage({
             <span className="rounded-full border border-cyan-400/40 bg-cyan-400/10 px-3 py-1 text-xs font-medium text-cyan-200">
               {phaseLabel(state.phase)}
             </span>
-            <span className="text-xs text-slate-400">
-              {state.sessionId ? `Session ${state.sessionId.slice(0, 8)}...` : "Anonymous session"}
-            </span>
+            {isDebugMode ? (
+              <span className="text-xs text-slate-400">
+                {state.sessionId ? `Session ${state.sessionId.slice(0, 8)}...` : "Anonymous session"}
+              </span>
+            ) : null}
           </div>
 
           <UploadForm
@@ -508,6 +511,7 @@ export default function UploadPage({
             onRetry={retryHandler}
             phase={state.phase}
             uploadId={state.uploadId}
+            isDebugMode={isDebugMode}
           />
 
           <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-300">
@@ -516,8 +520,8 @@ export default function UploadPage({
             <p className="mt-1 break-all">
               Selected file: {state.selectedFile ? state.selectedFile.name : "No file selected"}
             </p>
-            {state.uploadId ? <p className="mt-1 break-all">Upload ID: {state.uploadId}</p> : null}
-            {state.jobId ? <p className="mt-1 break-all">Job ID: {state.jobId}</p> : null}
+            {isDebugMode && state.uploadId ? <p className="mt-1 break-all">Upload ID: {state.uploadId}</p> : null}
+            {isDebugMode && state.jobId ? <p className="mt-1 break-all">Job ID: {state.jobId}</p> : null}
             {state.isRetrying ? <p className="mt-1 break-all text-amber-200">Retrying failed job...</p> : null}
             {state.jobStatus ? <p className="mt-1 break-all">Job status: {state.jobStatus}</p> : null}
             {state.jobStage ? <p className="mt-1 break-all">Job stage: {state.jobStage}</p> : null}
@@ -549,7 +553,23 @@ export default function UploadPage({
             phase={pokemonResultsState.phase}
             resolvingReadingIds={resolvingReadingIds}
             results={pokemonResultsState.items}
+            isDebugMode={isDebugMode}
           />
+
+          <div className="mt-4 flex justify-end">
+            <label className="inline-flex items-center gap-2 text-xs text-slate-400" htmlFor="debug-mode-checkbox">
+              <input
+                checked={isDebugMode}
+                className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-cyan-400 focus:ring-cyan-400/60"
+                id="debug-mode-checkbox"
+                onChange={(event) => {
+                  setIsDebugMode(event.target.checked);
+                }}
+                type="checkbox"
+              />
+              Debug mode
+            </label>
+          </div>
         </section>
       </div>
     </main>
