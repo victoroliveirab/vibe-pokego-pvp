@@ -264,6 +264,14 @@ export function createPokemonResultsApi({ apiClient = defaultApiClient } = {}) {
 
       return normalizeResolveResponse(payload);
     },
+    async deletePokemonResult({ sessionId = "", resultId = "" } = {}) {
+      const normalizedResultID = normalizeRequiredString(resultId, "resultId", { resultId });
+      await apiClient.request(`/pokemon/${encodeURIComponent(normalizedResultID)}`, {
+        method: "DELETE",
+        requiresSession: true,
+        sessionId,
+      });
+    },
   };
 }
 

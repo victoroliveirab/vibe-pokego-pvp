@@ -66,10 +66,16 @@ function createResult(overrides = {}) {
 
 function createProps(overrides = {}) {
   return {
+    deleteConfirmation: null,
+    deletingResultIds: [],
     error: null,
     lastFetchedAt: "",
+    onCancelDeleteResult: vi.fn(),
+    onConfirmDeleteResult: vi.fn(),
+    onRequestDeleteResult: vi.fn(),
     onRetry: vi.fn(),
     phase: pokemonResultsPhases.IDLE,
+    pendingDeleteError: null,
     results: [],
     ...overrides,
   };
@@ -586,5 +592,77 @@ describe("pokemon results panel", () => {
     expect(screen.getByText("Pending Species Confirmation")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Darumaka/ }));
     expect(onResolvePendingOption).toHaveBeenCalledWith("reading-1", "option-1");
+  });
+
+  it("opens delete confirmation flow for accepted results", () => {
+    const onRequestDeleteResult = vi.fn();
+    render(
+      <PokemonResultsPanel
+        {...createProps({
+          onRequestDeleteResult,
+          phase: pokemonResultsPhases.SUCCESS,
+          results: [createResult()],
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete Machop" })[0]);
+    expect(onRequestDeleteResult).toHaveBeenCalledWith(expect.objectContaining({ id: "result-1", speciesName: "Machop" }));
+  });
+
+  it("renders delete confirmation modal and wires cancel/confirm actions", () => {
+    const onCancelDeleteResult = vi.fn();
+    const onConfirmDeleteResult = vi.fn();
+
+    render(
+      <PokemonResultsPanel
+        {...createProps({
+          deleteConfirmation: {
+            isOpen: true,
+            resultId: "result-1",
+            speciesName: "Machop",
+          },
+          onCancelDeleteResult,
+          onConfirmDeleteResult,
+          phase: pokemonResultsPhases.SUCCESS,
+          results: [createResult()],
+        })}
+      />,
+    );
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByText("Delete result?")).toBeTruthy();
+    expect(screen.getByRole("dialog").textContent).toContain("Delete Machop? This hides the accepted appraisal from future lists.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onCancelDeleteResult).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(onConfirmDeleteResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables delete actions while a result is deleting and shows modal error", () => {
+    render(
+      <PokemonResultsPanel
+        {...createProps({
+          deleteConfirmation: {
+            isOpen: true,
+            resultId: "result-1",
+            speciesName: "Machop",
+          },
+          deletingResultIds: ["result-1"],
+          pendingDeleteError: {
+            code: "INTERNAL_ERROR",
+            message: "Delete failed.",
+          },
+          phase: pokemonResultsPhases.SUCCESS,
+          results: [createResult()],
+        })}
+      />,
+    );
+
+    expect(screen.getAllByRole("button", { name: "Delete Machop" })[0].disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Deleting..." }).disabled).toBe(true);
+    expect(screen.getByText("Delete failed.")).toBeTruthy();
   });
 });

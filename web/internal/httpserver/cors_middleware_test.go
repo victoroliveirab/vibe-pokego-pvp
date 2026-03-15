@@ -56,6 +56,9 @@ func TestWithCORSRespondsToPreflightForAllowedOrigin(t *testing.T) {
 	if got := resp.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(got, http.MethodPatch) {
 		t.Fatalf("expected Access-Control-Allow-Methods to include %s, got %q", http.MethodPatch, got)
 	}
+	if got := resp.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(got, http.MethodDelete) {
+		t.Fatalf("expected Access-Control-Allow-Methods to include %s, got %q", http.MethodDelete, got)
+	}
 	if got := resp.Header().Get("Access-Control-Allow-Headers"); got != "content-type,x-session-id" {
 		t.Fatalf("expected Access-Control-Allow-Headers to echo request headers, got %q", got)
 	}

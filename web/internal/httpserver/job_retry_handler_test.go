@@ -249,6 +249,10 @@ func (s *fakeJobRetryHandlerStore) ListPendingReadingsBySession(
 	return nil, errors.New("not implemented")
 }
 
+func (s *fakeJobRetryHandlerStore) SoftDeletePokemonResult(context.Context, string, string, time.Time) error {
+	return errors.New("not implemented")
+}
+
 func (s *fakeJobRetryHandlerStore) ResolvePendingReading(
 	context.Context,
 	upload.ResolvePendingReadingParams,

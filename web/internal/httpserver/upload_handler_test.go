@@ -361,6 +361,10 @@ func (s *fakeUploadStore) ListPendingReadingsBySession(context.Context, string) 
 	return nil, nil
 }
 
+func (s *fakeUploadStore) SoftDeletePokemonResult(context.Context, string, string, time.Time) error {
+	return errors.New("not implemented")
+}
+
 func (s *fakeUploadStore) ResolvePendingReading(
 	context.Context,
 	upload.ResolvePendingReadingParams,

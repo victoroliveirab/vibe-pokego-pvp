@@ -29,6 +29,7 @@ type Store interface {
 	CreateRetryJob(ctx context.Context, parentJobID string, sessionID string, now time.Time) (RetryJob, error)
 	GetJobStatus(ctx context.Context, jobID string, sessionID string) (JobStatusRecord, error)
 	ListPokemonResultsBySession(ctx context.Context, sessionID string) ([]PokemonResultRecord, error)
+	SoftDeletePokemonResult(ctx context.Context, resultID string, sessionID string, now time.Time) error
 	ListPendingReadingsBySession(ctx context.Context, sessionID string) ([]PendingSpeciesReadingRecord, error)
 	ResolvePendingReading(ctx context.Context, params ResolvePendingReadingParams) (PokemonResultRecord, error)
 }
@@ -206,6 +207,7 @@ CREATE TABLE IF NOT EXISTS appraisal_results (
 	end_ms INTEGER NULL,
 	frame_timestamp_ms INTEGER NULL,
 	extraction_confidence REAL NULL,
+	deleted_at TEXT NULL,
 	created_at TEXT NOT NULL,
 	FOREIGN KEY(job_id) REFERENCES jobs(id),
 	FOREIGN KEY(upload_id) REFERENCES uploads(id)
@@ -363,6 +365,16 @@ CREATE INDEX IF NOT EXISTS idx_job_debug_frames_job_id_created_at ON job_debug_f
 		return fmt.Errorf("bootstrap upload/jobs schema: %w", err)
 	}
 
+	if err := ensureSQLiteColumnExists(
+		ctx,
+		s.db,
+		"appraisal_results",
+		"deleted_at",
+		"ALTER TABLE appraisal_results ADD COLUMN deleted_at TEXT NULL;",
+	); err != nil {
+		return fmt.Errorf("ensure appraisal_results.deleted_at column: %w", err)
+	}
+
 	return nil
 }
 
@@ -378,6 +390,42 @@ func execSchemaStatements(ctx context.Context, db *sql.DB, schema string) error 
 		}
 	}
 	return nil
+}
+
+func ensureSQLiteColumnExists(
+	ctx context.Context,
+	db *sql.DB,
+	tableName string,
+	columnName string,
+	alterStatement string,
+) error {
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info("+tableName+");")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name string
+		var columnType string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if strings.EqualFold(name, columnName) {
+			return nil
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	_, err = db.ExecContext(ctx, alterStatement)
+	return err
 }
 
 // CreateUploadAndQueuedJob atomically creates an upload row and a queued job row.
@@ -634,7 +682,7 @@ SELECT id, job_id, upload_id, session_id, species_name, cp, hp,
        level_estimate, level_confidence, level_method, source_type,
        start_ms, end_ms, frame_timestamp_ms, extraction_confidence, created_at
 FROM appraisal_results
-WHERE session_id = ?
+WHERE session_id = ? AND deleted_at IS NULL
 ORDER BY created_at ASC, id ASC;`
 
 	rows, err := s.db.QueryContext(ctx, query, sessionID)
@@ -725,7 +773,7 @@ SELECT e.appraisal_result_id, e.max_cp, e.evaluated_species_id, e.best_level, e.
        e.stat_product, e.rank_position, e.percentage
 FROM appraisal_result_pvp_evaluations e
 JOIN appraisal_results r ON r.id = e.appraisal_result_id
-WHERE r.session_id = ?
+WHERE r.session_id = ? AND r.deleted_at IS NULL
 ORDER BY e.appraisal_result_id ASC, e.max_cp ASC, e.evaluated_species_id ASC;`
 
 	rows, err := s.db.QueryContext(ctx, query, sessionID)
@@ -759,6 +807,44 @@ ORDER BY e.appraisal_result_id ASC, e.max_cp ASC, e.evaluated_species_id ASC;`
 	}
 
 	return evaluationsByResultID, nil
+}
+
+// SoftDeletePokemonResult marks one accepted appraisal result as deleted for a session.
+func (s *sqliteStore) SoftDeletePokemonResult(ctx context.Context, resultID string, sessionID string, now time.Time) error {
+	if strings.TrimSpace(resultID) == "" {
+		return fmt.Errorf("resultID is required")
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return fmt.Errorf("sessionID is required")
+	}
+
+	timestamp := now.UTC()
+	if timestamp.IsZero() {
+		timestamp = time.Now().UTC()
+	}
+
+	result, err := s.db.ExecContext(
+		ctx,
+		`UPDATE appraisal_results
+		 SET deleted_at = ?
+		 WHERE id = ? AND session_id = ? AND deleted_at IS NULL;`,
+		timestamp.Format(time.RFC3339Nano),
+		resultID,
+		sessionID,
+	)
+	if err != nil {
+		return fmt.Errorf("soft delete appraisal result: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read appraisal result delete rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return ErrPokemonResultNotFound
+	}
+
+	return nil
 }
 
 // ListPendingReadingsBySession returns unresolved pending readings with ranked options for one session.
