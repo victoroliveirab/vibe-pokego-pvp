@@ -19,6 +19,7 @@ func TestSQLiteStoreBootstrapsUploadAndJobSchema(t *testing.T) {
 	assertSQLiteObjectExists(t, store.db, "table", "jobs")
 	assertSQLiteObjectExists(t, store.db, "table", "appraisal_candidates")
 	assertSQLiteObjectExists(t, store.db, "table", "appraisal_results")
+	assertSQLiteObjectExists(t, store.db, "table", "appraisal_result_dedupe_tombstones")
 	assertSQLiteObjectExists(t, store.db, "table", "appraisal_result_pvp_evaluations")
 	assertSQLiteObjectExists(t, store.db, "table", "appraisal_result_pvp_eval_queue")
 	assertSQLiteObjectExists(t, store.db, "table", "appraisal_pending_readings")
@@ -33,6 +34,8 @@ func TestSQLiteStoreBootstrapsUploadAndJobSchema(t *testing.T) {
 	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_results_job_id")
 	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_results_upload_id")
 	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_results_session_id")
+	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_result_dedupe_tombstones_session_id")
+	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_result_dedupe_tombstones_source_result_id")
 	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_result_pvp_evals_result_id")
 	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_result_pvp_evals_species_id")
 	assertSQLiteObjectExists(t, store.db, "index", "idx_appraisal_result_pvp_eval_queue_status_next_retry")
@@ -98,6 +101,8 @@ CREATE TABLE appraisal_results (
 	defer sqliteStore.db.Close()
 
 	assertSQLiteColumnExists(t, sqliteStore.db, "appraisal_results", "deleted_at")
+	assertSQLiteObjectExists(t, sqliteStore.db, "table", "appraisal_result_dedupe_tombstones")
+	assertSQLiteObjectExists(t, sqliteStore.db, "index", "idx_appraisal_result_dedupe_tombstones_session_id")
 }
 
 func TestCreateUploadAndQueuedJobCreatesBothRowsWithQueuedDefaults(t *testing.T) {
@@ -991,6 +996,218 @@ func TestListPokemonResultsBySessionReturnsEmptyForUnknownSession(t *testing.T) 
 	}
 }
 
+func TestListPokemonResultsBySessionKeepsLatestDuplicatePerDedupeKey(t *testing.T) {
+	store, _ := newTestSQLiteStore(t)
+	ctx := context.Background()
+	sessionID := "session-a"
+
+	baseCreatedAt := time.Date(2026, time.March, 6, 10, 0, 0, 0, time.UTC)
+	levelEstimate := 20.5
+
+	seedUploadRow(t, store.db, "upload-old", sessionID, baseCreatedAt)
+	seedJobRow(t, store.db, seededJobRow{
+		ID:        "job-old",
+		UploadID:  "upload-old",
+		SessionID: sessionID,
+		Status:    JobStatusSucceeded,
+		Progress:  100,
+		CreatedAt: baseCreatedAt,
+		UpdatedAt: baseCreatedAt,
+	})
+	seedAppraisalResultRow(t, store.db, seededAppraisalResultRow{
+		ID:            "result-old",
+		JobID:         "job-old",
+		UploadID:      "upload-old",
+		SessionID:     sessionID,
+		SpeciesName:   "Pikachu",
+		CP:            410,
+		HP:            64,
+		IVAttack:      10,
+		IVDefense:     12,
+		IVStamina:     11,
+		LevelEstimate: &levelEstimate,
+		LevelMethod:   "UNKNOWN",
+		SourceType:    "IMAGE",
+		CreatedAt:     baseCreatedAt,
+	})
+	seedPvPEvaluationRow(t, store.db, seededPvPEvaluationRow{
+		ID:                 "eval-old",
+		AppraisalResultID:  "result-old",
+		MaxCP:              1500,
+		EvaluatedSpeciesID: "raichu",
+		BestLevel:          20.5,
+		BestCP:             1498,
+		StatProduct:        123456.78,
+		RankPosition:       50,
+		Percentage:         97.5,
+		CreatedAt:          baseCreatedAt,
+	})
+
+	laterCreatedAt := baseCreatedAt.Add(time.Minute)
+	seedUploadRow(t, store.db, "upload-new", sessionID, laterCreatedAt)
+	seedJobRow(t, store.db, seededJobRow{
+		ID:        "job-new",
+		UploadID:  "upload-new",
+		SessionID: sessionID,
+		Status:    JobStatusSucceeded,
+		Progress:  100,
+		CreatedAt: laterCreatedAt,
+		UpdatedAt: laterCreatedAt,
+	})
+	seedAppraisalResultRow(t, store.db, seededAppraisalResultRow{
+		ID:                  "result-new",
+		JobID:               "job-new",
+		UploadID:            "upload-new",
+		SessionID:           sessionID,
+		SpeciesName:         "  pikachu  ",
+		CP:                  410,
+		HP:                  64,
+		PowerUpStardustCost: 4000,
+		IVAttack:            10,
+		IVDefense:           12,
+		IVStamina:           11,
+		LevelEstimate:       &levelEstimate,
+		LevelMethod:         "UNKNOWN",
+		SourceType:          "VIDEO",
+		CreatedAt:           laterCreatedAt,
+	})
+	seedPvPEvaluationRow(t, store.db, seededPvPEvaluationRow{
+		ID:                 "eval-new",
+		AppraisalResultID:  "result-new",
+		MaxCP:              2500,
+		EvaluatedSpeciesID: "raichu",
+		BestLevel:          30.0,
+		BestCP:             2499,
+		StatProduct:        234567.89,
+		RankPosition:       15,
+		Percentage:         99.1,
+		CreatedAt:          laterCreatedAt,
+	})
+
+	results, err := store.ListPokemonResultsBySession(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 deduplicated result, got %d", len(results))
+	}
+	if results[0].ID != "result-new" {
+		t.Fatalf("expected latest duplicate survivor %q, got %q", "result-new", results[0].ID)
+	}
+	if len(results[0].MaxCPEvaluations) != 1 {
+		t.Fatalf("expected survivor evaluations only, got %#v", results[0].MaxCPEvaluations)
+	}
+	if results[0].MaxCPEvaluations[0].MaxCP != 2500 {
+		t.Fatalf("expected survivor evaluation max cp 2500, got %#v", results[0].MaxCPEvaluations[0])
+	}
+}
+
+func TestListPokemonResultsBySessionKeepsDistinctLevelEstimates(t *testing.T) {
+	store, _ := newTestSQLiteStore(t)
+	ctx := context.Background()
+	sessionID := "session-a"
+
+	baseCreatedAt := time.Date(2026, time.March, 6, 11, 0, 0, 0, time.UTC)
+	levelEstimate := 20.0
+
+	seedUploadRow(t, store.db, "upload-nil-old", sessionID, baseCreatedAt)
+	seedJobRow(t, store.db, seededJobRow{
+		ID:        "job-nil-old",
+		UploadID:  "upload-nil-old",
+		SessionID: sessionID,
+		Status:    JobStatusSucceeded,
+		Progress:  100,
+		CreatedAt: baseCreatedAt,
+		UpdatedAt: baseCreatedAt,
+	})
+	seedAppraisalResultRow(t, store.db, seededAppraisalResultRow{
+		ID:          "result-nil-old",
+		JobID:       "job-nil-old",
+		UploadID:    "upload-nil-old",
+		SessionID:   sessionID,
+		SpeciesName: "Eevee",
+		CP:          500,
+		HP:          80,
+		IVAttack:    10,
+		IVDefense:   10,
+		IVStamina:   10,
+		LevelMethod: "UNKNOWN",
+		SourceType:  "IMAGE",
+		CreatedAt:   baseCreatedAt,
+	})
+
+	secondCreatedAt := baseCreatedAt.Add(time.Minute)
+	seedUploadRow(t, store.db, "upload-level", sessionID, secondCreatedAt)
+	seedJobRow(t, store.db, seededJobRow{
+		ID:        "job-level",
+		UploadID:  "upload-level",
+		SessionID: sessionID,
+		Status:    JobStatusSucceeded,
+		Progress:  100,
+		CreatedAt: secondCreatedAt,
+		UpdatedAt: secondCreatedAt,
+	})
+	seedAppraisalResultRow(t, store.db, seededAppraisalResultRow{
+		ID:            "result-level",
+		JobID:         "job-level",
+		UploadID:      "upload-level",
+		SessionID:     sessionID,
+		SpeciesName:   "Eevee",
+		CP:            500,
+		HP:            80,
+		IVAttack:      10,
+		IVDefense:     10,
+		IVStamina:     10,
+		LevelEstimate: &levelEstimate,
+		LevelMethod:   "ARC_POSITION",
+		SourceType:    "IMAGE",
+		CreatedAt:     secondCreatedAt,
+	})
+
+	thirdCreatedAt := secondCreatedAt.Add(time.Minute)
+	seedUploadRow(t, store.db, "upload-nil-new", sessionID, thirdCreatedAt)
+	seedJobRow(t, store.db, seededJobRow{
+		ID:        "job-nil-new",
+		UploadID:  "upload-nil-new",
+		SessionID: sessionID,
+		Status:    JobStatusSucceeded,
+		Progress:  100,
+		CreatedAt: thirdCreatedAt,
+		UpdatedAt: thirdCreatedAt,
+	})
+	seedAppraisalResultRow(t, store.db, seededAppraisalResultRow{
+		ID:          "result-nil-new",
+		JobID:       "job-nil-new",
+		UploadID:    "upload-nil-new",
+		SessionID:   sessionID,
+		SpeciesName: "eevee",
+		CP:          500,
+		HP:          80,
+		IVAttack:    10,
+		IVDefense:   10,
+		IVStamina:   10,
+		LevelMethod: "UNKNOWN",
+		SourceType:  "VIDEO",
+		CreatedAt:   thirdCreatedAt,
+	})
+
+	results, err := store.ListPokemonResultsBySession(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(results) != 2 {
+		t.Fatalf("expected 2 visible results, got %d", len(results))
+	}
+	if results[0].ID != "result-level" {
+		t.Fatalf("expected first visible result %q, got %q", "result-level", results[0].ID)
+	}
+	if results[1].ID != "result-nil-new" {
+		t.Fatalf("expected second visible result %q, got %q", "result-nil-new", results[1].ID)
+	}
+}
+
 func TestSoftDeletePokemonResultMarksDeletedAndExcludesItFromResults(t *testing.T) {
 	store, _ := newTestSQLiteStore(t)
 	ctx := context.Background()
@@ -1086,6 +1303,119 @@ func TestSoftDeletePokemonResultMarksDeletedAndExcludesItFromResults(t *testing.
 	}
 	if results[0].ID != "result-2" {
 		t.Fatalf("expected remaining result %q, got %q", "result-2", results[0].ID)
+	}
+}
+
+func TestSoftDeletePokemonResultTombstonesDuplicateGroup(t *testing.T) {
+	store, _ := newTestSQLiteStore(t)
+	ctx := context.Background()
+	sessionID := "session-a"
+	baseCreatedAt := time.Date(2026, time.March, 6, 12, 0, 0, 0, time.UTC)
+	levelEstimate := 21.0
+
+	seedUploadRow(t, store.db, "upload-older", sessionID, baseCreatedAt)
+	seedJobRow(t, store.db, seededJobRow{
+		ID:        "job-older",
+		UploadID:  "upload-older",
+		SessionID: sessionID,
+		Status:    JobStatusSucceeded,
+		Progress:  100,
+		CreatedAt: baseCreatedAt,
+		UpdatedAt: baseCreatedAt,
+	})
+	seedAppraisalResultRow(t, store.db, seededAppraisalResultRow{
+		ID:            "result-older",
+		JobID:         "job-older",
+		UploadID:      "upload-older",
+		SessionID:     sessionID,
+		SpeciesName:   "Machop",
+		CP:            512,
+		HP:            64,
+		IVAttack:      12,
+		IVDefense:     15,
+		IVStamina:     13,
+		LevelEstimate: &levelEstimate,
+		LevelMethod:   "ARC_POSITION",
+		SourceType:    "IMAGE",
+		CreatedAt:     baseCreatedAt,
+	})
+
+	laterCreatedAt := baseCreatedAt.Add(time.Minute)
+	seedUploadRow(t, store.db, "upload-newer", sessionID, laterCreatedAt)
+	seedJobRow(t, store.db, seededJobRow{
+		ID:        "job-newer",
+		UploadID:  "upload-newer",
+		SessionID: sessionID,
+		Status:    JobStatusSucceeded,
+		Progress:  100,
+		CreatedAt: laterCreatedAt,
+		UpdatedAt: laterCreatedAt,
+	})
+	seedAppraisalResultRow(t, store.db, seededAppraisalResultRow{
+		ID:            "result-newer",
+		JobID:         "job-newer",
+		UploadID:      "upload-newer",
+		SessionID:     sessionID,
+		SpeciesName:   "machop",
+		CP:            512,
+		HP:            64,
+		IVAttack:      12,
+		IVDefense:     15,
+		IVStamina:     13,
+		LevelEstimate: &levelEstimate,
+		LevelMethod:   "ARC_POSITION",
+		SourceType:    "VIDEO",
+		CreatedAt:     laterCreatedAt,
+	})
+
+	results, err := store.ListPokemonResultsBySession(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("expected list pokemon results to succeed, got %v", err)
+	}
+	if len(results) != 1 || results[0].ID != "result-newer" {
+		t.Fatalf("expected latest duplicate survivor before delete, got %#v", results)
+	}
+
+	deleteAt := laterCreatedAt.Add(time.Minute)
+	if err := store.SoftDeletePokemonResult(ctx, "result-newer", sessionID, deleteAt); err != nil {
+		t.Fatalf("expected soft delete to succeed, got %v", err)
+	}
+
+	var deletedAtRaw sql.NullString
+	if err := store.db.QueryRowContext(ctx, `SELECT deleted_at FROM appraisal_results WHERE id = ?;`, "result-newer").Scan(&deletedAtRaw); err != nil {
+		t.Fatalf("expected deleted_at query to succeed, got %v", err)
+	}
+	if !deletedAtRaw.Valid || deletedAtRaw.String != deleteAt.UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("expected deleted_at %q, got %#v", deleteAt.UTC().Format(time.RFC3339Nano), deletedAtRaw)
+	}
+
+	var tombstoneSourceID string
+	if err := store.db.QueryRowContext(
+		ctx,
+		`SELECT source_result_id FROM appraisal_result_dedupe_tombstones WHERE session_id = ? AND dedupe_key = ?;`,
+		sessionID,
+		pokemonResultDedupKeyFromIdentity(pokemonResultDedupIdentity{
+			SpeciesName:   "Machop",
+			CP:            512,
+			HP:            64,
+			IVAttack:      12,
+			IVDefense:     15,
+			IVStamina:     13,
+			LevelEstimate: &levelEstimate,
+		}),
+	).Scan(&tombstoneSourceID); err != nil {
+		t.Fatalf("expected dedupe tombstone query to succeed, got %v", err)
+	}
+	if tombstoneSourceID != "result-newer" {
+		t.Fatalf("expected tombstone source result %q, got %q", "result-newer", tombstoneSourceID)
+	}
+
+	results, err = store.ListPokemonResultsBySession(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("expected list pokemon results after delete to succeed, got %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("expected duplicate group to remain hidden after survivor delete, got %#v", results)
 	}
 }
 

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +30,7 @@ type Store interface {
 	CreateUploadAndQueuedJob(ctx context.Context, params CreateParams) (Upload, Job, error)
 	CreateRetryJob(ctx context.Context, parentJobID string, sessionID string, now time.Time) (RetryJob, error)
 	GetJobStatus(ctx context.Context, jobID string, sessionID string) (JobStatusRecord, error)
+	GetActiveJobStatus(ctx context.Context, sessionID string) (JobStatusRecord, error)
 	ListPokemonResultsBySession(ctx context.Context, sessionID string) ([]PokemonResultRecord, error)
 	SoftDeletePokemonResult(ctx context.Context, resultID string, sessionID string, now time.Time) error
 	ListPendingReadingsBySession(ctx context.Context, sessionID string) ([]PendingSpeciesReadingRecord, error)
@@ -213,6 +216,15 @@ CREATE TABLE IF NOT EXISTS appraisal_results (
 	FOREIGN KEY(upload_id) REFERENCES uploads(id)
 );
 
+CREATE TABLE IF NOT EXISTS appraisal_result_dedupe_tombstones (
+	session_id TEXT NOT NULL,
+	dedupe_key TEXT NOT NULL,
+	source_result_id TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	PRIMARY KEY(session_id, dedupe_key),
+	FOREIGN KEY(source_result_id) REFERENCES appraisal_results(id)
+);
+
 CREATE TABLE IF NOT EXISTS appraisal_result_pvp_evaluations (
 	id TEXT PRIMARY KEY,
 	appraisal_result_id TEXT NOT NULL,
@@ -347,6 +359,8 @@ CREATE INDEX IF NOT EXISTS idx_appraisal_candidates_session_id ON appraisal_cand
 CREATE INDEX IF NOT EXISTS idx_appraisal_results_job_id ON appraisal_results(job_id);
 CREATE INDEX IF NOT EXISTS idx_appraisal_results_upload_id ON appraisal_results(upload_id);
 CREATE INDEX IF NOT EXISTS idx_appraisal_results_session_id ON appraisal_results(session_id);
+CREATE INDEX IF NOT EXISTS idx_appraisal_result_dedupe_tombstones_session_id ON appraisal_result_dedupe_tombstones(session_id);
+CREATE INDEX IF NOT EXISTS idx_appraisal_result_dedupe_tombstones_source_result_id ON appraisal_result_dedupe_tombstones(source_result_id);
 CREATE INDEX IF NOT EXISTS idx_appraisal_result_pvp_evals_result_id ON appraisal_result_pvp_evaluations(appraisal_result_id);
 CREATE INDEX IF NOT EXISTS idx_appraisal_result_pvp_evals_species_id ON appraisal_result_pvp_evaluations(evaluated_species_id);
 CREATE INDEX IF NOT EXISTS idx_appraisal_result_pvp_eval_queue_status_next_retry ON appraisal_result_pvp_eval_queue(status, next_retry_at);
@@ -674,6 +688,77 @@ WHERE id = ? AND session_id = ?;`
 	return record, nil
 }
 
+func (s *sqliteStore) GetActiveJobStatus(ctx context.Context, sessionID string) (JobStatusRecord, error) {
+	const query = `
+SELECT id, upload_id, session_id, status, progress, stage,
+       created_at, updated_at, finished_at, error_code, error_message
+FROM jobs
+WHERE session_id = ?
+  AND status IN (?, ?)
+ORDER BY updated_at DESC, created_at DESC, id DESC
+LIMIT 1;`
+
+	var record JobStatusRecord
+	var stage sql.NullString
+	var createdAtRaw string
+	var updatedAtRaw string
+	var finishedAtRaw sql.NullString
+	var errorCode sql.NullString
+	var errorMessage sql.NullString
+
+	if err := s.db.QueryRowContext(
+		ctx,
+		query,
+		sessionID,
+		JobStatusQueued,
+		JobStatusProcessing,
+	).Scan(
+		&record.ID,
+		&record.UploadID,
+		&record.SessionID,
+		&record.Status,
+		&record.Progress,
+		&stage,
+		&createdAtRaw,
+		&updatedAtRaw,
+		&finishedAtRaw,
+		&errorCode,
+		&errorMessage,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return JobStatusRecord{}, ErrJobNotFound
+		}
+
+		return JobStatusRecord{}, fmt.Errorf("query active job status by session: %w", err)
+	}
+
+	createdAt, err := time.Parse(time.RFC3339Nano, createdAtRaw)
+	if err != nil {
+		return JobStatusRecord{}, fmt.Errorf("parse created_at %q: %w", createdAtRaw, err)
+	}
+	updatedAt, err := time.Parse(time.RFC3339Nano, updatedAtRaw)
+	if err != nil {
+		return JobStatusRecord{}, fmt.Errorf("parse updated_at %q: %w", updatedAtRaw, err)
+	}
+
+	record.Stage = nullableString(stage)
+	record.CreatedAt = createdAt
+	record.UpdatedAt = updatedAt
+
+	if finishedAtRaw.Valid {
+		finishedAt, err := time.Parse(time.RFC3339Nano, finishedAtRaw.String)
+		if err != nil {
+			return JobStatusRecord{}, fmt.Errorf("parse finished_at %q: %w", finishedAtRaw.String, err)
+		}
+		record.FinishedAt = &finishedAt
+	}
+
+	record.ErrorCode = nullableString(errorCode)
+	record.ErrorMessage = nullableString(errorMessage)
+
+	return record, nil
+}
+
 // ListPokemonResultsBySession returns accepted appraisal results for one session.
 func (s *sqliteStore) ListPokemonResultsBySession(ctx context.Context, sessionID string) ([]PokemonResultRecord, error) {
 	const query = `
@@ -751,17 +836,49 @@ ORDER BY created_at ASC, id ASC;`
 		return results, nil
 	}
 
+	tombstonedKeys, err := s.listPokemonResultDedupeTombstonesBySession(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	survivorIDByKey := make(map[string]string, len(results))
+	for _, result := range results {
+		dedupeKey := pokemonResultDedupKey(result)
+		if _, tombstoned := tombstonedKeys[dedupeKey]; tombstoned {
+			continue
+		}
+
+		survivorIDByKey[dedupeKey] = result.ID
+	}
+
+	visibleResults := make([]PokemonResultRecord, 0, len(survivorIDByKey))
+	for _, result := range results {
+		dedupeKey := pokemonResultDedupKey(result)
+		if _, tombstoned := tombstonedKeys[dedupeKey]; tombstoned {
+			continue
+		}
+		if survivorIDByKey[dedupeKey] != result.ID {
+			continue
+		}
+
+		visibleResults = append(visibleResults, result)
+	}
+
+	if len(visibleResults) == 0 {
+		return visibleResults, nil
+	}
+
 	evaluationsByResultID, err := s.listPokemonResultMaxCPEvaluationsBySession(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 
-	for i := range results {
-		resultEvaluations := evaluationsByResultID[results[i].ID]
-		results[i].MaxCPEvaluations = append([]PokemonResultMaxCPEvaluationRecord(nil), resultEvaluations...)
+	for i := range visibleResults {
+		resultEvaluations := evaluationsByResultID[visibleResults[i].ID]
+		visibleResults[i].MaxCPEvaluations = append([]PokemonResultMaxCPEvaluationRecord(nil), resultEvaluations...)
 	}
 
-	return results, nil
+	return visibleResults, nil
 }
 
 func (s *sqliteStore) listPokemonResultMaxCPEvaluationsBySession(
@@ -809,6 +926,38 @@ ORDER BY e.appraisal_result_id ASC, e.max_cp ASC, e.evaluated_species_id ASC;`
 	return evaluationsByResultID, nil
 }
 
+func (s *sqliteStore) listPokemonResultDedupeTombstonesBySession(
+	ctx context.Context,
+	sessionID string,
+) (map[string]struct{}, error) {
+	const query = `
+SELECT dedupe_key
+FROM appraisal_result_dedupe_tombstones
+WHERE session_id = ?;`
+
+	rows, err := s.db.QueryContext(ctx, query, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("query pokemon result dedupe tombstones by session: %w", err)
+	}
+	defer rows.Close()
+
+	tombstonedKeys := make(map[string]struct{})
+	for rows.Next() {
+		var dedupeKey string
+		if err := rows.Scan(&dedupeKey); err != nil {
+			return nil, fmt.Errorf("scan pokemon result dedupe tombstone row: %w", err)
+		}
+
+		tombstonedKeys[dedupeKey] = struct{}{}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pokemon result dedupe tombstone rows: %w", err)
+	}
+
+	return tombstonedKeys, nil
+}
+
 // SoftDeletePokemonResult marks one accepted appraisal result as deleted for a session.
 func (s *sqliteStore) SoftDeletePokemonResult(ctx context.Context, resultID string, sessionID string, now time.Time) error {
 	if strings.TrimSpace(resultID) == "" {
@@ -823,7 +972,35 @@ func (s *sqliteStore) SoftDeletePokemonResult(ctx context.Context, resultID stri
 		timestamp = time.Now().UTC()
 	}
 
-	result, err := s.db.ExecContext(
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin soft delete appraisal result tx: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	resultIdentity, err := readPokemonResultDedupIdentity(ctx, tx, resultID, sessionID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPokemonResultNotFound
+		}
+		return err
+	}
+
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT OR IGNORE INTO appraisal_result_dedupe_tombstones(session_id, dedupe_key, source_result_id, created_at)
+		 VALUES (?, ?, ?, ?);`,
+		sessionID,
+		pokemonResultDedupKeyFromIdentity(resultIdentity),
+		resultID,
+		timestamp.Format(time.RFC3339Nano),
+	); err != nil {
+		return fmt.Errorf("insert appraisal result dedupe tombstone: %w", err)
+	}
+
+	result, err := tx.ExecContext(
 		ctx,
 		`UPDATE appraisal_results
 		 SET deleted_at = ?
@@ -844,7 +1021,86 @@ func (s *sqliteStore) SoftDeletePokemonResult(ctx context.Context, resultID stri
 		return ErrPokemonResultNotFound
 	}
 
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit soft delete appraisal result tx: %w", err)
+	}
+
 	return nil
+}
+
+type pokemonResultDedupIdentity struct {
+	SpeciesName   string
+	CP            int
+	HP            int
+	IVAttack      int
+	IVDefense     int
+	IVStamina     int
+	LevelEstimate *float64
+}
+
+func readPokemonResultDedupIdentity(
+	ctx context.Context,
+	tx *sql.Tx,
+	resultID string,
+	sessionID string,
+) (pokemonResultDedupIdentity, error) {
+	const query = `
+SELECT species_name, cp, hp, iv_attack, iv_defense, iv_stamina, level_estimate
+FROM appraisal_results
+WHERE id = ? AND session_id = ? AND deleted_at IS NULL;`
+
+	var identity pokemonResultDedupIdentity
+	var levelEstimate sql.NullFloat64
+	if err := tx.QueryRowContext(ctx, query, resultID, sessionID).Scan(
+		&identity.SpeciesName,
+		&identity.CP,
+		&identity.HP,
+		&identity.IVAttack,
+		&identity.IVDefense,
+		&identity.IVStamina,
+		&levelEstimate,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return pokemonResultDedupIdentity{}, err
+		}
+		return pokemonResultDedupIdentity{}, fmt.Errorf("query appraisal result dedupe identity: %w", err)
+	}
+
+	identity.LevelEstimate = nullableFloat64(levelEstimate)
+
+	return identity, nil
+}
+
+func pokemonResultDedupKey(record PokemonResultRecord) string {
+	return pokemonResultDedupKeyFromIdentity(pokemonResultDedupIdentity{
+		SpeciesName:   record.SpeciesName,
+		CP:            record.CP,
+		HP:            record.HP,
+		IVAttack:      record.IVAttack,
+		IVDefense:     record.IVDefense,
+		IVStamina:     record.IVStamina,
+		LevelEstimate: record.LevelEstimate,
+	})
+}
+
+func pokemonResultDedupKeyFromIdentity(identity pokemonResultDedupIdentity) string {
+	return strings.Join([]string{
+		strings.ToLower(strings.TrimSpace(identity.SpeciesName)),
+		strconv.Itoa(identity.CP),
+		strconv.Itoa(identity.HP),
+		strconv.Itoa(identity.IVAttack),
+		strconv.Itoa(identity.IVDefense),
+		strconv.Itoa(identity.IVStamina),
+		pokemonResultLevelDedupKeyPart(identity.LevelEstimate),
+	}, "|")
+}
+
+func pokemonResultLevelDedupKeyPart(levelEstimate *float64) string {
+	if levelEstimate == nil {
+		return "nil"
+	}
+
+	return strconv.FormatUint(math.Float64bits(*levelEstimate), 16)
 }
 
 // ListPendingReadingsBySession returns unresolved pending readings with ranked options for one session.

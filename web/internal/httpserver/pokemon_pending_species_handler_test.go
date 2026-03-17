@@ -355,6 +355,10 @@ func (s *fakePokemonPendingSpeciesStore) GetJobStatus(context.Context, string, s
 	return upload.JobStatusRecord{}, errors.New("not implemented")
 }
 
+func (s *fakePokemonPendingSpeciesStore) GetActiveJobStatus(context.Context, string) (upload.JobStatusRecord, error) {
+	return upload.JobStatusRecord{}, upload.ErrJobNotFound
+}
+
 func (s *fakePokemonPendingSpeciesStore) ListPokemonResultsBySession(context.Context, string) ([]upload.PokemonResultRecord, error) {
 	return nil, errors.New("not implemented")
 }

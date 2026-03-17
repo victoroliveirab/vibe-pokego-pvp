@@ -275,7 +275,8 @@ func TestJobStatusHandlerFailedPayloadNormalizesMissingErrorField(t *testing.T) 
 }
 
 type fakeJobStatusHandlerStore struct {
-	getJobStatusFn func(ctx context.Context, jobID string, sessionID string) (upload.JobStatusRecord, error)
+	getJobStatusFn       func(ctx context.Context, jobID string, sessionID string) (upload.JobStatusRecord, error)
+	getActiveJobStatusFn func(ctx context.Context, sessionID string) (upload.JobStatusRecord, error)
 }
 
 func (s *fakeJobStatusHandlerStore) CreateUploadAndQueuedJob(context.Context, upload.CreateParams) (upload.Upload, upload.Job, error) {
@@ -296,6 +297,14 @@ func (s *fakeJobStatusHandlerStore) GetJobStatus(
 	}
 
 	return upload.JobStatusRecord{}, nil
+}
+
+func (s *fakeJobStatusHandlerStore) GetActiveJobStatus(ctx context.Context, sessionID string) (upload.JobStatusRecord, error) {
+	if s.getActiveJobStatusFn != nil {
+		return s.getActiveJobStatusFn(ctx, sessionID)
+	}
+
+	return upload.JobStatusRecord{}, upload.ErrJobNotFound
 }
 
 func (s *fakeJobStatusHandlerStore) ListPokemonResultsBySession(context.Context, string) ([]upload.PokemonResultRecord, error) {

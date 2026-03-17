@@ -109,6 +109,7 @@ describe("upload page job monitoring", () => {
     };
 
     const jobApi = {
+      getActiveJob: vi.fn().mockResolvedValue(null),
       getJobStatus: vi
         .fn()
         .mockResolvedValueOnce(
@@ -174,6 +175,7 @@ describe("upload page job monitoring", () => {
     };
 
     const jobApi = {
+      getActiveJob: vi.fn().mockResolvedValue(null),
       getJobStatus: vi
         .fn()
         .mockRejectedValueOnce({
@@ -233,6 +235,7 @@ describe("upload page job monitoring", () => {
 
     let retriedJobPolls = 0;
     const jobApi = {
+      getActiveJob: vi.fn().mockResolvedValue(null),
       getJobStatus: vi.fn().mockImplementation(async ({ jobId }) => {
         if (jobId === "job-1") {
           return createJobStatus({
@@ -321,6 +324,7 @@ describe("upload page job monitoring", () => {
     };
 
     const jobApi = {
+      getActiveJob: vi.fn().mockResolvedValue(null),
       getJobStatus: vi.fn().mockResolvedValue(
         createJobStatus({
           jobId: "job-1",
@@ -449,6 +453,7 @@ describe("upload page job monitoring", () => {
     };
 
     const jobApi = {
+      getActiveJob: vi.fn().mockResolvedValue(null),
       getJobStatus: vi
         .fn()
         .mockResolvedValueOnce(
@@ -504,6 +509,7 @@ describe("upload page job monitoring", () => {
     };
 
     const jobApi = {
+      getActiveJob: vi.fn().mockResolvedValue(null),
       getJobStatus: vi
         .fn()
         .mockResolvedValueOnce(
@@ -576,6 +582,57 @@ describe("upload page job monitoring", () => {
     await waitFor(() => {
       expect(screen.getAllByText("Pikachu").length).toBeGreaterThan(0);
       expect(screen.queryByText("Stale Species")).toBeNull();
+    });
+  });
+
+  it("resumes an active job on first load and keeps polling it", async () => {
+    const jobApi = {
+      getActiveJob: vi.fn().mockResolvedValue(
+        createJobStatus({
+          jobId: "job-1",
+          status: "PROCESSING",
+          progress: 35,
+          stage: "SAMPLING_FRAMES",
+        }),
+      ),
+      getJobStatus: vi.fn().mockResolvedValueOnce(
+        createJobStatus({
+          jobId: "job-1",
+          status: "SUCCEEDED",
+          progress: 100,
+          stage: null,
+          finishedAt: "2026-03-05T20:10:45Z",
+        }),
+      ),
+    };
+
+    const pokemonResultsApi = createPokemonResultsApi();
+
+    render(
+      <UploadPage
+        jobApi={jobApi}
+        monitorIntervalMs={100}
+        pokemonResultsApi={pokemonResultsApi}
+        uploadApi={{ submitUpload: vi.fn() }}
+        useSessionHook={createSessionHook()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(jobApi.getActiveJob).toHaveBeenCalledWith({
+        sessionId: "session-1",
+      });
+    });
+
+    await waitFor(() => {
+      expect(jobApi.getJobStatus).toHaveBeenCalledWith({
+        jobId: "job-1",
+        sessionId: "session-1",
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Processing complete")).toBeTruthy();
     });
   });
 

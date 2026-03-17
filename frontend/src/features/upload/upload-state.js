@@ -115,6 +115,22 @@ export function uploadStateReducer(state, action) {
           jobStatus: "QUEUED",
         }),
       };
+    case "resume-active-job":
+      return applyJobSnapshot(
+        {
+          ...state,
+          phase: uploadFlowPhases.SUCCESS,
+          uploadId: action.job && typeof action.job.uploadId === "string" ? action.job.uploadId : "",
+          jobId: action.job && typeof action.job.jobId === "string" ? action.job.jobId : "",
+          isRetrying: false,
+          error: null,
+          ...createResetJobLifecycleState(),
+        },
+        {
+          ...action,
+          sourceJobId: action.job && typeof action.job.jobId === "string" ? action.job.jobId : "",
+        },
+      );
     case "set-error":
       return {
         ...state,

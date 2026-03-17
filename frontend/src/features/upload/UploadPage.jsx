@@ -80,6 +80,7 @@ export default function UploadPage({
   const pokemonResultsRequestIdRef = useRef(0);
   const lastSessionPokemonFetchRef = useRef("");
   const lastJobPokemonFetchKeyRef = useRef("");
+  const activeJobBootstrapSessionRef = useRef("");
 
   const refreshPokemonResults = useCallback(
     async ({ sessionId: sourceSessionId, preserveItems = true } = {}) => {
@@ -181,6 +182,51 @@ export default function UploadPage({
       preserveItems: false,
     });
   }, [refreshPokemonResults, state.sessionId]);
+
+  useEffect(() => {
+    const normalizedSessionId = typeof state.sessionId === "string" ? state.sessionId.trim() : "";
+    const getActiveJob = typeof jobApi.getActiveJob === "function" ? jobApi.getActiveJob.bind(jobApi) : null;
+
+    if (!normalizedSessionId || !getActiveJob) {
+      activeJobBootstrapSessionRef.current = "";
+      return;
+    }
+
+    if (activeJobBootstrapSessionRef.current === normalizedSessionId) {
+      return;
+    }
+
+    activeJobBootstrapSessionRef.current = normalizedSessionId;
+    let isDisposed = false;
+
+    const bootstrapActiveJob = async () => {
+      try {
+        const activeJob = await getActiveJob({
+          sessionId: normalizedSessionId,
+        });
+
+        if (isDisposed || !activeJob) {
+          return;
+        }
+
+        dispatch({
+          type: "resume-active-job",
+          job: activeJob,
+          polledAt: new Date().toISOString(),
+        });
+      } catch (_error) {
+        if (isDisposed) {
+          return;
+        }
+      }
+    };
+
+    void bootstrapActiveJob();
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [jobApi, state.sessionId]);
 
   useEffect(() => {
     if (state.phase !== uploadFlowPhases.SUCCESS || !state.sessionId || !state.jobId) {

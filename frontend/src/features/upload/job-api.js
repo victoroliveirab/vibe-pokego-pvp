@@ -131,6 +131,28 @@ export function normalizeRetryError(error) {
 
 export function createJobApi({ apiClient = defaultApiClient } = {}) {
   return {
+    async getActiveJob({ sessionId = "" } = {}) {
+      const payload = await apiClient.request("/jobs/active", {
+        method: "GET",
+        requiresSession: true,
+        sessionId,
+      });
+
+      if (!payload || typeof payload !== "object") {
+        throw new APIClientError({
+          code: "INVALID_RESPONSE",
+          message: "Active job response payload was invalid.",
+          details: payload,
+        });
+      }
+
+      if (payload.job === null || payload.job === undefined) {
+        return null;
+      }
+
+      return normalizeJobStatusResponse(payload.job);
+    },
+
     async getJobStatus({ jobId, sessionId = "" }) {
       const normalizedJobId = normalizeRequiredString(jobId, "jobId", { jobId });
       const payload = await apiClient.request(`/jobs/${encodeURIComponent(normalizedJobId)}`, {

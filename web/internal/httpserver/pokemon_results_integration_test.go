@@ -196,6 +196,92 @@ func TestPokemonResultsIntegrationReturnsSessionScopedResultsInDeterministicOrde
 	}
 }
 
+func TestPokemonResultsIntegrationDeduplicatesDuplicateImportsAndKeepsDeletedGroupHidden(t *testing.T) {
+	env := newJobStatusIntegrationEnv(t)
+
+	sessionID := createSessionViaHTTP(t, env.client, env.server.URL)
+	olderImport := createUploadAndJobViaHTTP(t, env, sessionID)
+	newerImport := createUploadAndJobViaHTTP(t, env, sessionID)
+
+	baseCreatedAt := time.Date(2026, time.March, 5, 19, 0, 0, 0, time.UTC)
+	laterCreatedAt := baseCreatedAt.Add(time.Second)
+	levelEstimate := 21.0
+
+	insertIntegrationAppraisalResultRow(t, env.dbPath, integrationAppraisalResultRow{
+		ID:            "result-older",
+		JobID:         olderImport.JobID,
+		UploadID:      olderImport.UploadID,
+		SessionID:     sessionID,
+		SpeciesName:   "Machop",
+		CP:            512,
+		HP:            64,
+		IVAttack:      12,
+		IVDefense:     15,
+		IVStamina:     13,
+		LevelEstimate: &levelEstimate,
+		LevelMethod:   "ARC_POSITION",
+		SourceType:    "IMAGE",
+		CreatedAt:     baseCreatedAt,
+	})
+	insertIntegrationAppraisalResultRow(t, env.dbPath, integrationAppraisalResultRow{
+		ID:            "result-newer",
+		JobID:         newerImport.JobID,
+		UploadID:      newerImport.UploadID,
+		SessionID:     sessionID,
+		SpeciesName:   " machop ",
+		CP:            512,
+		HP:            64,
+		IVAttack:      12,
+		IVDefense:     15,
+		IVStamina:     13,
+		LevelEstimate: &levelEstimate,
+		LevelMethod:   "ARC_POSITION",
+		SourceType:    "VIDEO",
+		CreatedAt:     laterCreatedAt,
+	})
+
+	resp := sendPokemonResultsRequest(t, env.client, http.MethodGet, env.server.URL+"/pokemon", sessionID)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+
+	var payload pokemonResultsEnvelopeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("expected pokemon results payload, got: %v", err)
+	}
+
+	if len(payload.Results) != 1 {
+		t.Fatalf("expected 1 deduplicated result, got %d", len(payload.Results))
+	}
+	if payload.Results[0].ID != "result-newer" {
+		t.Fatalf("expected latest imported duplicate %q, got %q", "result-newer", payload.Results[0].ID)
+	}
+
+	deleteResp := sendPokemonResultsRequest(t, env.client, http.MethodDelete, env.server.URL+"/pokemon/result-newer", sessionID)
+	defer deleteResp.Body.Close()
+
+	if deleteResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected delete status %d, got %d", http.StatusNoContent, deleteResp.StatusCode)
+	}
+
+	afterDeleteResp := sendPokemonResultsRequest(t, env.client, http.MethodGet, env.server.URL+"/pokemon", sessionID)
+	defer afterDeleteResp.Body.Close()
+
+	if afterDeleteResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected post-delete status %d, got %d", http.StatusOK, afterDeleteResp.StatusCode)
+	}
+
+	var afterDeletePayload pokemonResultsEnvelopeResponse
+	if err := json.NewDecoder(afterDeleteResp.Body).Decode(&afterDeletePayload); err != nil {
+		t.Fatalf("expected post-delete pokemon results payload, got: %v", err)
+	}
+	if len(afterDeletePayload.Results) != 0 {
+		t.Fatalf("expected deleted duplicate group to stay hidden, got %#v", afterDeletePayload.Results)
+	}
+}
+
 func TestPokemonResultsIntegrationReturnsInvalidSessionErrors(t *testing.T) {
 	env := newJobStatusIntegrationEnv(t)
 	validSessionID := createSessionViaHTTP(t, env.client, env.server.URL)
