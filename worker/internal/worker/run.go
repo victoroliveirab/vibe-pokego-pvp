@@ -15,6 +15,7 @@ import (
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/appraisal"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/config"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/jobqueue"
+	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/logging"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/ocr"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/pvp"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/species"
@@ -23,7 +24,7 @@ import (
 
 // Run starts the worker loop for health checks and queue lifecycle processing.
 func Run(cfg config.Config, storage config.StorageConfig) {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := logging.New(cfg.AppEnv, cfg.BetterstackToken, cfg.BetterstackEndpoint)
 	workerID := newWorkerID()
 	leaseTimeout := leaseTimeoutForPollInterval(cfg.PollIntervalSecs)
 	heartbeatInterval := heartbeatIntervalForPollInterval(cfg.PollIntervalSecs)

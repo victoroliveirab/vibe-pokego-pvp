@@ -35,6 +35,12 @@ func TestLoadFromEnvLocalModeCreatesWritableUploadDir(t *testing.T) {
 	if cfg.DatabaseAuthToken != "" {
 		t.Fatalf("expected no local auth token, got %q", cfg.DatabaseAuthToken)
 	}
+	if cfg.BetterstackToken != "" {
+		t.Fatalf("expected empty betterstack token by default, got %q", cfg.BetterstackToken)
+	}
+	if cfg.BetterstackEndpoint != "" {
+		t.Fatalf("expected empty betterstack endpoint by default, got %q", cfg.BetterstackEndpoint)
+	}
 	if cfg.GameMasterPath == "" {
 		t.Fatal("expected WORKER_GAMEMASTER_PATH to be loaded")
 	}
@@ -433,6 +439,39 @@ func TestLoadFromEnvRejectsNonWritableLocalDir(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvLoadsBetterstackSettings(t *testing.T) {
+	setValidWorkerEnv(t, filepath.Join(t.TempDir(), "uploads"))
+	t.Setenv("BETTERSTACK_SOURCE_TOKEN", "source-token")
+	t.Setenv("BETTERSTACK_INGESTING_HOST", "https://in.logs.betterstack.com")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("expected config to load, got error: %v", err)
+	}
+
+	if cfg.BetterstackToken != "source-token" {
+		t.Fatalf("expected betterstack token to be loaded, got %q", cfg.BetterstackToken)
+	}
+	if cfg.BetterstackEndpoint != "https://in.logs.betterstack.com/" {
+		t.Fatalf("expected betterstack endpoint to be loaded, got %q", cfg.BetterstackEndpoint)
+	}
+}
+
+func TestLoadFromEnvNormalizesBetterstackHostToHTTPSURL(t *testing.T) {
+	setValidWorkerEnv(t, filepath.Join(t.TempDir(), "uploads"))
+	t.Setenv("BETTERSTACK_SOURCE_TOKEN", "source-token")
+	t.Setenv("BETTERSTACK_INGESTING_HOST", "endpoint.betterstack.com")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("expected config to load, got error: %v", err)
+	}
+
+	if cfg.BetterstackEndpoint != "https://endpoint.betterstack.com/" {
+		t.Fatalf("expected normalized betterstack endpoint, got %q", cfg.BetterstackEndpoint)
+	}
+}
+
 func setValidWorkerEnv(t *testing.T, uploadDir string) {
 	t.Helper()
 
@@ -463,4 +502,6 @@ func setValidWorkerEnv(t *testing.T, uploadDir string) {
 	t.Setenv("WORKER_UPLOADTHING_DOWNLOAD_TIMEOUT_SECS", "")
 	t.Setenv("WORKER_UPLOADTHING_DOWNLOAD_RETRY_COUNT", "")
 	t.Setenv("WORKER_UPLOADTHING_DOWNLOAD_TEMP_DIR", "")
+	t.Setenv("BETTERSTACK_SOURCE_TOKEN", "")
+	t.Setenv("BETTERSTACK_INGESTING_HOST", "")
 }

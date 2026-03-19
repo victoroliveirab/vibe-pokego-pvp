@@ -108,12 +108,27 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_ACTION_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          BETTERSTACK_SOURCE_TOKEN: ${{ secrets.BETTERSTACK_SOURCE_TOKEN }}
+          BETTERSTACK_INGESTING_HOST: ${{ secrets.BETTERSTACK_INGESTING_HOST }}
         run: |
           set -euo pipefail
-          ssh -p "${SSH_PORT}" "${SSH_USER}@${SSH_HOST}" "DEPLOY_PATH='${DEPLOY_PATH}' bash -se" <<'EOF'
+          ssh -p "${SSH_PORT}" "${SSH_USER}@${SSH_HOST}" \
+            "DEPLOY_PATH='${DEPLOY_PATH}' BETTERSTACK_SOURCE_TOKEN='${BETTERSTACK_SOURCE_TOKEN}' BETTERSTACK_INGESTING_HOST='${BETTERSTACK_INGESTING_HOST}' bash -se" <<'EOF'
           set -euo pipefail
           cd "${DEPLOY_PATH}"
           test -f .env.production
+          ensure_env_var() {
+            key="$1"
+            value="$2"
+            if grep -q "^${key}=" .env.production; then
+              sed -i.bak "s|^${key}=.*|${key}=${value}|" .env.production
+            else
+              printf '\n%s=%s\n' "${key}" "${value}" >> .env.production
+            fi
+          }
+          ensure_env_var "BETTERSTACK_SOURCE_TOKEN" "${BETTERSTACK_SOURCE_TOKEN}"
+          ensure_env_var "BETTERSTACK_INGESTING_HOST" "${BETTERSTACK_INGESTING_HOST}"
+          rm -f .env.production.bak
           docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
           ENV_FILE=.env.production \
           COMPOSE_CMD='docker compose -f docker-compose.prod.yml --env-file .env.production' \

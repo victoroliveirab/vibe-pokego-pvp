@@ -35,6 +35,12 @@ func TestLoadFromEnvLocalModeCreatesWritableUploadDir(t *testing.T) {
 	if cfg.DatabaseAuthToken != "" {
 		t.Fatalf("expected no local auth token, got %q", cfg.DatabaseAuthToken)
 	}
+	if cfg.BetterstackToken != "" {
+		t.Fatalf("expected empty betterstack token by default, got %q", cfg.BetterstackToken)
+	}
+	if cfg.BetterstackEndpoint != "" {
+		t.Fatalf("expected empty betterstack endpoint by default, got %q", cfg.BetterstackEndpoint)
+	}
 
 	if _, err := os.Stat(uploadDir); err != nil {
 		t.Fatalf("expected upload directory to exist: %v", err)
@@ -396,6 +402,41 @@ func TestLoadFromEnvUsesExplicitCORSOrigins(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvLoadsBetterstackSettings(t *testing.T) {
+	uploadDir := filepath.Join(t.TempDir(), "uploads")
+	setValidWebEnv(t, uploadDir)
+	t.Setenv("BETTERSTACK_SOURCE_TOKEN", "source-token")
+	t.Setenv("BETTERSTACK_INGESTING_HOST", "https://in.logs.betterstack.com")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("expected config to load, got error: %v", err)
+	}
+
+	if cfg.BetterstackToken != "source-token" {
+		t.Fatalf("expected betterstack token to be loaded, got %q", cfg.BetterstackToken)
+	}
+	if cfg.BetterstackEndpoint != "https://in.logs.betterstack.com/" {
+		t.Fatalf("expected betterstack endpoint to be loaded, got %q", cfg.BetterstackEndpoint)
+	}
+}
+
+func TestLoadFromEnvNormalizesBetterstackHostToHTTPSURL(t *testing.T) {
+	uploadDir := filepath.Join(t.TempDir(), "uploads")
+	setValidWebEnv(t, uploadDir)
+	t.Setenv("BETTERSTACK_SOURCE_TOKEN", "source-token")
+	t.Setenv("BETTERSTACK_INGESTING_HOST", "endpoint.betterstack.com")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("expected config to load, got error: %v", err)
+	}
+
+	if cfg.BetterstackEndpoint != "https://endpoint.betterstack.com/" {
+		t.Fatalf("expected normalized betterstack endpoint, got %q", cfg.BetterstackEndpoint)
+	}
+}
+
 func setValidWebEnv(t *testing.T, uploadDir string) {
 	t.Helper()
 	t.Setenv("APP_ENV", "local")
@@ -408,4 +449,6 @@ func setValidWebEnv(t *testing.T, uploadDir string) {
 	t.Setenv("UPLOADTHING_TOKEN", "")
 	t.Setenv("UPLOADTHING_PREPARE_UPLOAD_URL", "")
 	t.Setenv("UPLOADTHING_REQUEST_TIMEOUT_SECS", "")
+	t.Setenv("BETTERSTACK_SOURCE_TOKEN", "")
+	t.Setenv("BETTERSTACK_INGESTING_HOST", "")
 }

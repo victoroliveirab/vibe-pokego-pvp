@@ -35,6 +35,8 @@ type Config struct {
 	DatabaseURL             string
 	DatabaseAuthToken       string
 	DatabaseIsLocal         bool
+	BetterstackToken        string
+	BetterstackEndpoint     string
 	GameMasterPath          string
 	VideoSamplingIntervalMS int
 	Storage                 StorageConfig
@@ -146,6 +148,11 @@ func LoadFromEnv() (Config, error) {
 		return Config{}, err
 	}
 
+	betterstackEndpoint, err := normalizeBetterstackEndpoint(os.Getenv("BETTERSTACK_INGESTING_HOST"))
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		AppEnv:                  appEnv,
 		PollIntervalSecs:        pollSecs,
@@ -154,6 +161,8 @@ func LoadFromEnv() (Config, error) {
 		DatabaseURL:             databaseConfig.URL,
 		DatabaseAuthToken:       databaseConfig.AuthToken,
 		DatabaseIsLocal:         databaseConfig.IsLocal,
+		BetterstackToken:        strings.TrimSpace(os.Getenv("BETTERSTACK_SOURCE_TOKEN")),
+		BetterstackEndpoint:     betterstackEndpoint,
 		GameMasterPath:          gameMasterPath,
 		VideoSamplingIntervalMS: videoSamplingIntervalMS,
 		Storage:                 storage,
@@ -215,6 +224,31 @@ func formatLocalDatabaseURL(databasePath string) string {
 		return trimmed
 	}
 	return "file:" + trimmed
+}
+
+func normalizeBetterstackEndpoint(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", nil
+	}
+
+	candidate := trimmed
+	if !strings.Contains(candidate, "://") {
+		candidate = "https://" + candidate
+	}
+
+	parsed, err := url.Parse(candidate)
+	if err != nil {
+		return "", fmt.Errorf("BETTERSTACK_INGESTING_HOST must be a valid URL or host: %w", err)
+	}
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("BETTERSTACK_INGESTING_HOST must be a valid URL or host")
+	}
+	if parsed.Path == "" {
+		parsed.Path = "/"
+	}
+
+	return parsed.String(), nil
 }
 
 func parseLocalDatabasePath(databaseURL string) string {
