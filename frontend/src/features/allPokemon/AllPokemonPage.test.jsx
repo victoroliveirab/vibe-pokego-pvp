@@ -135,19 +135,21 @@ describe("all pokemon page", () => {
     render(<AllPokemonPage pokemonResultsApi={pokemonResultsApi} useSessionHook={createSessionHook()} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Aipom")).toBeTruthy();
-      expect(screen.getByText("Zubat")).toBeTruthy();
+      const rows = screen.getAllByTestId("scan-row");
+      expect(rows).toHaveLength(2);
+      expect(rows[0].textContent).toContain("Aipom");
+      expect(rows[1].textContent).toContain("Zubat");
     });
 
     const rows = screen.getAllByTestId("scan-row");
-    expect(rows[0]).toHaveTextContent("Aipom");
+    expect(rows[0].textContent).toContain("Aipom");
 
     const sortSelect = screen.getByLabelText("Sort");
     fireEvent.change(sortSelect, { target: { value: "scanDateAsc" } });
-    expect(screen.getAllByTestId("scan-row")[0]).toHaveTextContent("Zubat");
+    expect(screen.getAllByTestId("scan-row")[0].textContent).toContain("Zubat");
 
     fireEvent.change(sortSelect, { target: { value: "rankAsc" } });
     const rowsByBestRank = screen.getAllByTestId("scan-row");
-    expect(rowsByBestRank[0]).toHaveTextContent("Aipom");
+    expect(rowsByBestRank[0].textContent).toContain("Aipom");
   });
 });
