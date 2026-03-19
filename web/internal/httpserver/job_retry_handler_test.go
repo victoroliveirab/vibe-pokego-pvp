@@ -238,6 +238,10 @@ func (s *fakeJobRetryHandlerStore) GetJobStatus(context.Context, string, string)
 	return upload.JobStatusRecord{}, errors.New("not implemented")
 }
 
+func (s *fakeJobRetryHandlerStore) GetActiveJobStatus(context.Context, string) (upload.JobStatusRecord, error) {
+	return upload.JobStatusRecord{}, upload.ErrJobNotFound
+}
+
 func (s *fakeJobRetryHandlerStore) ListPokemonResultsBySession(context.Context, string) ([]upload.PokemonResultRecord, error) {
 	return nil, errors.New("not implemented")
 }

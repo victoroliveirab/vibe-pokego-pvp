@@ -64,13 +64,15 @@ export default function UploadStatusPanel({
   phase,
   uploadId,
 }) {
+  const statusPanelWrapperClass = "mt-4 status-panel";
+
   if (phase === uploadFlowPhases.IDLE || phase === uploadFlowPhases.READY) {
     return null;
   }
 
   if (phase === uploadFlowPhases.SESSION_LOADING) {
     return (
-      <section className={`status-panel ${statusToneClasses(phase)}`} role="status">
+      <section className={`${statusPanelWrapperClass} ${statusToneClasses(phase)}`} role="status">
         <p className="status-panel-title">Preparing session</p>
         <p className="mt-1 text-sm text-cyan-50">Creating an anonymous session so your upload can be processed.</p>
       </section>
@@ -79,7 +81,7 @@ export default function UploadStatusPanel({
 
   if (phase === uploadFlowPhases.UPLOADING) {
     return (
-      <section className={`status-panel ${statusToneClasses(phase)}`} role="status">
+      <section className={`${statusPanelWrapperClass} ${statusToneClasses(phase)}`} role="status">
         <p className="status-panel-title">Uploading media</p>
         <p className="mt-1 text-sm text-cyan-50">Upload received. Waiting for server confirmation.</p>
       </section>
@@ -94,7 +96,10 @@ export default function UploadStatusPanel({
 
     if (normalizedStatus === "FAILED") {
       return (
-        <section className={`status-panel ${statusToneClasses(uploadFlowPhases.ERROR)}`} role="alert">
+        <section
+          className={`${statusPanelWrapperClass} ${statusToneClasses(uploadFlowPhases.ERROR)}`}
+          role="alert"
+        >
           <p className="status-panel-title">Processing failed</p>
           <p className="mt-1 text-sm text-rose-50">
             {jobError && jobError.message ? jobError.message : "Processing could not be completed."}
@@ -129,7 +134,7 @@ export default function UploadStatusPanel({
 
     if (normalizedStatus === "SUCCEEDED") {
       return (
-        <section className={`status-panel ${statusToneClasses(uploadFlowPhases.SUCCESS)}`} role="status">
+        <section className={`${statusPanelWrapperClass} ${statusToneClasses(uploadFlowPhases.SUCCESS)}`} role="status">
           <p className="status-panel-title">Processing complete</p>
           <p className="mt-1 text-sm text-emerald-50">Appraisal extraction finished successfully.</p>
           {finishedAt ? <p className="mt-2 text-xs text-emerald-100/80">Finished at: {finishedAt}</p> : null}
@@ -149,7 +154,10 @@ export default function UploadStatusPanel({
 
     if (normalizedStatus === "PENDING_USER_DEDUP") {
       return (
-        <section className="status-panel border-amber-500/40 bg-amber-500/10 text-amber-100" role="status">
+        <section
+          className="mt-4 status-panel border-amber-500/40 bg-amber-500/10 text-amber-100"
+          role="status"
+        >
           <p className="status-panel-title">Waiting for your species selection</p>
           <p className="mt-1 text-sm text-amber-50">
             Processing finished, but we need a species confirmation before finalizing results.
@@ -169,7 +177,7 @@ export default function UploadStatusPanel({
     }
 
     return (
-      <section className={`status-panel ${statusToneClasses(phase)}`} role="status">
+      <section className={`${statusPanelWrapperClass} ${statusToneClasses(phase)}`} role="status">
         <p className="status-panel-title">{normalizedStatus === "QUEUED" ? "Queued for processing" : "Processing"}</p>
         <p className="mt-1 text-sm text-emerald-50">
           {normalizedStatus === "QUEUED"
@@ -203,7 +211,7 @@ export default function UploadStatusPanel({
   }
 
   return (
-    <section className={`status-panel ${statusToneClasses(uploadFlowPhases.ERROR)}`} role="alert">
+    <section className={`${statusPanelWrapperClass} ${statusToneClasses(uploadFlowPhases.ERROR)}`} role="alert">
       <p className="status-panel-title">Upload failed</p>
       <p className="mt-1 text-sm text-rose-50">{error ? error.message : "Please try again."}</p>
       {error && error.code ? <p className="mt-1 text-xs text-rose-100/80">Code: {error.code}</p> : null}

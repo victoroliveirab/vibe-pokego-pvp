@@ -349,6 +349,10 @@ func (s *fakeUploadStore) GetJobStatus(context.Context, string, string) (upload.
 	return upload.JobStatusRecord{}, upload.ErrJobNotFound
 }
 
+func (s *fakeUploadStore) GetActiveJobStatus(context.Context, string) (upload.JobStatusRecord, error) {
+	return upload.JobStatusRecord{}, upload.ErrJobNotFound
+}
+
 func (s *fakeUploadStore) CreateRetryJob(context.Context, string, string, time.Time) (upload.RetryJob, error) {
 	return upload.RetryJob{}, errors.New("not implemented")
 }
