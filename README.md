@@ -25,11 +25,8 @@ My ideal workflow is: 1. screen record my phone in Pokemon GO as I go through my
 
 ### Roadmap
 
-- [ ] Add Litte/Great/Ultra League measures
 - [ ] Make pending Pokemon appear inline with the rest of Pokemon
-- [ ] Improve Pokemon List Design - Species / CP / IV (optional) / Best League / Grading for that League / Chevron to Open details
 - [ ] Add proper login
-- [ ] Improve logs (betterstack)
 - [ ] Add Pokemon Detailed view - Display level, stardust required to level up by league etc.
 - [ ] Add Team Builder for League view
 - [ ] Implement worker pool
