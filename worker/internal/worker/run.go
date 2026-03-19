@@ -174,10 +174,6 @@ func runQueueTick(
 		logger.Warn("failed to claim queued job", "error", err)
 		return
 	}
-	if !claimed {
-		logger.Info("queue tick", "at", now.Format(time.RFC3339), "claimed", false)
-		return
-	}
 
 	logger.Info("job claimed", "job_id", job.ID, "upload_id", job.UploadID)
 	runClaimedJobLifecycle(ctx, queueStore, logger, job, workerID, heartbeatInterval, processor, nowFn)
