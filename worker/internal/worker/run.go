@@ -169,7 +169,7 @@ func runQueueTick(
 		logger.Info("expired stale jobs", "count", expiredRows, "cutoff", cutoff.Format(time.RFC3339))
 	}
 
-	job, claimed, err := queueStore.ClaimNextQueuedJob(ctx, workerID, now)
+	job, _, err := queueStore.ClaimNextQueuedJob(ctx, workerID, now)
 	if err != nil {
 		logger.Warn("failed to claim queued job", "error", err)
 		return
