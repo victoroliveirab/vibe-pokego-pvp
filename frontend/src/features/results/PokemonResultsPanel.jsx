@@ -1,11 +1,13 @@
 import { Fragment, useEffect, useRef, useState } from "react";
+import {
+  buildPokemonLeagueBreakdown,
+  formatSpeciesDisplayName,
+  isValidRank,
+  leagueTabs,
+  normalizeMaxCPEvaluations,
+  tierChipClasses,
+} from "./pokemonLeagueDisplayUtils";
 import { pokemonResultsPhases } from "./pokemon-results-state";
-
-const leagueTabs = [
-  { key: "little", label: "Little" },
-  { key: "great", label: "Great" },
-  { key: "ultra", label: "Ultra" },
-];
 
 function formatOptionalNumber(value) {
   if (typeof value !== "number" || Number.isNaN(value)) {
@@ -118,135 +120,8 @@ function formatIVs(ivs) {
   return `${attack}/${defense}/${stamina}`;
 }
 
-function normalizeMaxCPEvaluations(maxCPEvaluations) {
-  return Array.isArray(maxCPEvaluations) ? maxCPEvaluations : [];
-}
-
-function isValidRank(rank) {
-  return typeof rank === "number" && !Number.isNaN(rank) && rank > 0;
-}
-
-function rankToTier(rank) {
-  if (!isValidRank(rank)) {
-    return "F";
-  }
-
-  if (rank <= 10) {
-    return "S";
-  }
-  if (rank <= 50) {
-    return "A";
-  }
-  if (rank <= 100) {
-    return "B";
-  }
-  if (rank <= 200) {
-    return "C";
-  }
-  if (rank <= 400) {
-    return "D";
-  }
-  return "F";
-}
-
-function tierChipClasses(tier) {
-  if (tier === "S") {
-    return "border-emerald-300/70 bg-emerald-500/20 text-emerald-100";
-  }
-  if (tier === "A") {
-    return "border-cyan-300/70 bg-cyan-500/20 text-cyan-100";
-  }
-  if (tier === "B") {
-    return "border-blue-300/70 bg-blue-500/20 text-blue-100";
-  }
-  if (tier === "C") {
-    return "border-amber-300/70 bg-amber-500/20 text-amber-100";
-  }
-  if (tier === "D") {
-    return "border-orange-300/70 bg-orange-500/20 text-orange-100";
-  }
-  if (tier === "F") {
-    return "border-rose-300/70 bg-rose-500/20 text-rose-100";
-  }
-  return "border-slate-500/70 bg-slate-700/30 text-slate-200";
-}
-
-function mapMaxCPToLeague(maxCP) {
-  if (maxCP === 500) {
-    return "little";
-  }
-  if (maxCP === 1500) {
-    return "great";
-  }
-  if (maxCP === 2500) {
-    return "ultra";
-  }
-  return null;
-}
-
-function formatSpeciesDisplayName(speciesId) {
-  if (typeof speciesId !== "string" || speciesId.trim().length === 0) {
-    return "Unknown";
-  }
-
-  return speciesId
-    .trim()
-    .replace(/[\-_]+/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-function compareLeagueEntries(left, right) {
-  const leftRank = isValidRank(left.rank) ? left.rank : Number.POSITIVE_INFINITY;
-  const rightRank = isValidRank(right.rank) ? right.rank : Number.POSITIVE_INFINITY;
-
-  if (leftRank !== rightRank) {
-    return leftRank - rightRank;
-  }
-
-  if (left.percentage !== right.percentage) {
-    return right.percentage - left.percentage;
-  }
-
-  return String(left.evaluatedSpeciesId).localeCompare(String(right.evaluatedSpeciesId));
-}
-
 function buildLeagueBreakdown(maxCPEvaluations) {
-  const byLeague = {
-    little: [],
-    great: [],
-    ultra: [],
-  };
-
-  const entries = normalizeMaxCPEvaluations(maxCPEvaluations);
-  let bestRank = null;
-
-  for (const entry of entries) {
-    const league = mapMaxCPToLeague(entry.maxCp);
-    if (!league) {
-      continue;
-    }
-
-    byLeague[league].push({
-      ...entry,
-      league,
-      tier: rankToTier(entry.rank),
-      speciesDisplayName: formatSpeciesDisplayName(entry.evaluatedSpeciesId),
-    });
-
-    if (isValidRank(entry.rank) && (bestRank === null || entry.rank < bestRank)) {
-      bestRank = entry.rank;
-    }
-  }
-
-  for (const tab of leagueTabs) {
-    byLeague[tab.key].sort(compareLeagueEntries);
-  }
-
-  return {
-    byLeague,
-    bestAvailableTier: bestRank === null ? null : rankToTier(bestRank),
-  };
+  return buildPokemonLeagueBreakdown(maxCPEvaluations);
 }
 
 function selectDefaultLeagueTab(byLeague) {

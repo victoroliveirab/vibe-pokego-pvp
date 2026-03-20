@@ -11,7 +11,42 @@ const errorMessageByCode = {
   JOB_RETRY_NOT_ALLOWED: "Only failed jobs can be retried.",
 };
 
+/**
+ * @typedef {null|boolean|number|string|JsonObject|JsonArray} JsonValue
+ */
+
+/**
+ * @typedef {Object.<string, JsonValue>} JsonObject
+ */
+
+/**
+ * @typedef {Array<JsonValue>} JsonArray
+ */
+
+/**
+ * @typedef {object} APIClientErrorOptions
+ * @property {string} [code="API_ERROR"]
+ * @property {string} [message=fallbackErrorMessage]
+ * @property {number} [status=0]
+ * @property {JsonValue|null} [details=null]
+ */
+
+/**
+ * @typedef {object} APIErrorEnvelope
+ * @property {string} [code]
+ * @property {string} [message]
+ * @property {JsonValue} [details]
+ */
+
+/**
+ * Represents an HTTP or backend-level API failure normalized for the frontend.
+ *
+ * @extends Error
+ */
 export class APIClientError extends Error {
+  /**
+   * @param {APIClientErrorOptions} [options={}]
+   */
   constructor({ code = "API_ERROR", message = fallbackErrorMessage, status = 0, details = null } = {}) {
     super(message);
     this.name = "APIClientError";
@@ -22,6 +57,12 @@ export class APIClientError extends Error {
   }
 }
 
+/**
+ * Extracts the backend error envelope from a parsed response payload.
+ *
+ * @param {JsonValue|null} payload
+ * @returns {APIErrorEnvelope|null}
+ */
 function extractErrorEnvelope(payload) {
   if (!payload || typeof payload !== "object") {
     return null;
@@ -35,6 +76,12 @@ function extractErrorEnvelope(payload) {
   return candidate;
 }
 
+/**
+ * Parses an unsuccessful fetch response into an {@link APIClientError}.
+ *
+ * @param {Response} response
+ * @returns {Promise<APIClientError>}
+ */
 export async function parseAPIError(response) {
   const rawBody = await response.text();
 
@@ -69,6 +116,12 @@ export async function parseAPIError(response) {
   });
 }
 
+/**
+ * Returns the safest user-facing message available for an error.
+ *
+ * @param {APIClientError|Error|{ message?: string }|null|undefined} error
+ * @returns {string}
+ */
 export function getUserFacingErrorMessage(error) {
   if (error instanceof APIClientError) {
     return error.userMessage;
