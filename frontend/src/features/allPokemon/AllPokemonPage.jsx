@@ -522,18 +522,6 @@ export default function AllPokemonPage({
                   ))}
                 </select>
               </label>
-
-              <label className="inline-flex min-h-10 items-center gap-3 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200">
-                <input
-                  checked={isDebugMode}
-                  className="h-4 w-4 rounded border-slate-500 bg-slate-900 text-cyan-400 focus:ring-cyan-300"
-                  onChange={(event) => {
-                    setIsDebugMode(event.target.checked);
-                  }}
-                  type="checkbox"
-                />
-                Debug mode
-              </label>
             </div>
           </div>
 
@@ -701,6 +689,20 @@ export default function AllPokemonPage({
             </p>
           ) : null}
         </section>
+
+        <div className="flex justify-end pt-1">
+          <label className="inline-flex min-h-10 items-center gap-3 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200">
+            <input
+              checked={isDebugMode}
+              className="h-4 w-4 rounded border-slate-500 bg-slate-900 text-cyan-400 focus:ring-cyan-300"
+              onChange={(event) => {
+                setIsDebugMode(event.target.checked);
+              }}
+              type="checkbox"
+            />
+            Debug mode
+          </label>
+        </div>
       </div>
 
       <DeleteResultDialog
