@@ -1,3 +1,76 @@
+/**
+ * @typedef {Object.<string, unknown>} UnknownRecord
+ */
+
+/**
+ * @typedef {object} UploadLifecycleError
+ * @property {string} code
+ * @property {string} message
+ * @property {string} debugMessage
+ * @property {unknown} details
+ */
+
+/**
+ * @typedef {File|null} UploadSelectedFile
+ */
+
+/**
+ * @typedef {UploadLifecycleError|Error|null} UploadStateError
+ */
+
+/**
+ * @typedef {object} JobSnapshot
+ * @property {string} [jobId]
+ * @property {string} [uploadId]
+ * @property {string} [status]
+ * @property {string|null} [stage]
+ * @property {number} [progress]
+ * @property {string|null} [finishedAt]
+ * @property {UploadLifecycleError|UnknownRecord|Error|null} [error]
+ */
+
+/**
+ * @typedef {object} JobLifecycleState
+ * @property {string} jobStatus
+ * @property {string} jobStage
+ * @property {number} jobProgress
+ * @property {UploadLifecycleError|null} jobError
+ * @property {string} finishedAt
+ * @property {string} lastPolledAt
+ */
+
+/**
+ * @typedef {object} UploadState
+ * @property {"idle"|"session-loading"|"ready"|"uploading"|"success"|"error"} phase
+ * @property {string} sessionId
+ * @property {UploadSelectedFile} selectedFile
+ * @property {string} uploadId
+ * @property {string} jobId
+ * @property {boolean} isRetrying
+ * @property {UploadStateError} error
+ * @property {string} jobStatus
+ * @property {string} jobStage
+ * @property {number} jobProgress
+ * @property {UploadLifecycleError|null} jobError
+ * @property {string} finishedAt
+ * @property {string} lastPolledAt
+ */
+
+/**
+ * @typedef {object} UploadStateAction
+ * @property {string} type
+ * @property {UploadSelectedFile} [file]
+ * @property {string} [phase]
+ * @property {string} [sessionId]
+ * @property {string} [uploadId]
+ * @property {string} [jobId]
+ * @property {JobSnapshot} [job]
+ * @property {string} [sourceJobId]
+ * @property {string} [polledAt]
+ * @property {UploadStateError} [error]
+ */
+
+/** @type {{ IDLE: "idle", SESSION_LOADING: "session-loading", READY: "ready", UPLOADING: "uploading", SUCCESS: "success", ERROR: "error" }} */
 export const uploadFlowPhases = {
   IDLE: "idle",
   SESSION_LOADING: "session-loading",
@@ -7,6 +80,7 @@ export const uploadFlowPhases = {
   ERROR: "error",
 };
 
+/** @type {JobLifecycleState} */
 export const initialJobLifecycleState = {
   jobStatus: "",
   jobStage: "",
@@ -16,6 +90,12 @@ export const initialJobLifecycleState = {
   lastPolledAt: "",
 };
 
+/**
+ * Creates a reset job lifecycle state with optional field overrides.
+ *
+ * @param {Partial<JobLifecycleState>} [overrides={}]
+ * @returns {JobLifecycleState}
+ */
 function createResetJobLifecycleState(overrides = {}) {
   return {
     ...initialJobLifecycleState,
@@ -23,6 +103,12 @@ function createResetJobLifecycleState(overrides = {}) {
   };
 }
 
+/**
+ * Normalizes a job error payload into the reducer-friendly error shape.
+ *
+ * @param {UploadLifecycleError|UnknownRecord|Error|null|undefined} error
+ * @returns {UploadLifecycleError|null}
+ */
 function normalizeJobLifecycleError(error) {
   if (!error || typeof error !== "object") {
     return null;
@@ -36,6 +122,16 @@ function normalizeJobLifecycleError(error) {
   };
 }
 
+/**
+ * Applies a normalized job snapshot to the current upload state.
+ *
+ * If a `sourceJobId` is provided and it does not match the current state, the
+ * existing state is returned unchanged to avoid stale poll responses winning.
+ *
+ * @param {UploadState} state
+ * @param {UploadStateAction} action
+ * @returns {UploadState}
+ */
 function applyJobSnapshot(state, action) {
   const sourceJobId = typeof action.sourceJobId === "string" ? action.sourceJobId : "";
   if (sourceJobId && state.jobId && sourceJobId !== state.jobId) {
@@ -56,6 +152,7 @@ function applyJobSnapshot(state, action) {
   };
 }
 
+/** @type {UploadState} */
 export const initialUploadState = {
   phase: uploadFlowPhases.IDLE,
   sessionId: "",
@@ -67,6 +164,13 @@ export const initialUploadState = {
   ...initialJobLifecycleState,
 };
 
+/**
+ * Reduces upload flow actions into the current upload state.
+ *
+ * @param {UploadState} state
+ * @param {UploadStateAction} action
+ * @returns {UploadState}
+ */
 export function uploadStateReducer(state, action) {
   switch (action.type) {
     case "select-file":
@@ -195,6 +299,6 @@ export function uploadStateReducer(state, action) {
         error: action.error,
       };
     default:
-      return state;
+        return state;
   }
 }

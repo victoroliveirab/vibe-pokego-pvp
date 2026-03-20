@@ -8,6 +8,86 @@ import {
 
 export { isValidRank, leagueTabs, mapMaxCPToLeague };
 
+/**
+ * @typedef {"scanDateAsc"|"scanDateDesc"|"rankAsc"|"rankDesc"} SortOptionKey
+ */
+
+/**
+ * @typedef {"little"|"great"|"ultra"} LeagueKey
+ */
+
+/**
+ * @typedef {object} SortOption
+ * @property {SortOptionKey} key
+ * @property {string} label
+ */
+
+/**
+ * @typedef {object} PokemonIVs
+ * @property {number} attack
+ * @property {number} defense
+ * @property {number} stamina
+ */
+
+/**
+ * @typedef {object} PokemonLevel
+ * @property {number|null} estimate
+ * @property {number|null} confidence
+ * @property {string} method
+ */
+
+/**
+ * @typedef {object} PokemonResultMaxCPEvaluation
+ * @property {number} maxCp
+ * @property {string} evaluatedSpeciesId
+ * @property {number} bestLevel
+ * @property {number} bestCp
+ * @property {number} statProduct
+ * @property {number} rank
+ * @property {number} percentage
+ */
+
+/**
+ * @typedef {PokemonResultMaxCPEvaluation & {
+ *   league: LeagueKey,
+ *   tier: string,
+ *   speciesDisplayName: string,
+ *   formattedPercentage?: string,
+ *   rankDisplay?: string
+ * }} LeagueDisplayEntry
+ */
+
+/**
+ * @typedef {object} PokemonResultRecord
+ * @property {string} id
+ * @property {string} speciesName
+ * @property {number} cp
+ * @property {number} hp
+ * @property {PokemonIVs} ivs
+ * @property {PokemonLevel} level
+ * @property {Array<PokemonResultMaxCPEvaluation>} maxCpEvaluations
+ * @property {string} createdAt
+ */
+
+/**
+ * @typedef {object} LeagueBreakdownBuckets
+ * @property {Array<LeagueDisplayEntry>} little
+ * @property {Array<LeagueDisplayEntry>} great
+ * @property {Array<LeagueDisplayEntry>} ultra
+ */
+
+/**
+ * @typedef {object} AllPokemonRow
+ * @property {Array<LeagueDisplayEntry>} activeLeagueEntries
+ * @property {LeagueDisplayEntry} bestActiveEntry
+ * @property {LeagueDisplayEntry|null} bestLeagueEntry
+ * @property {number|null} bestRank
+ * @property {string} bestTier
+ * @property {number} scanDate
+ * @property {PokemonResultRecord} result
+ */
+
+/** @type {Array<SortOption>} */
 export const sortOptions = [
   { key: "scanDateAsc", label: "Scan date (oldest first)" },
   { key: "scanDateDesc", label: "Scan date (newest first)" },
@@ -15,6 +95,12 @@ export const sortOptions = [
   { key: "rankDesc", label: "Rank (worst first)" },
 ];
 
+/**
+ * Formats a numeric rank for display.
+ *
+ * @param {number} rank
+ * @returns {string}
+ */
 function formatRank(rank) {
   if (!isValidRank(rank)) {
     return "N/A";
@@ -23,7 +109,12 @@ function formatRank(rank) {
   return `#${rank}`;
 }
 
-
+/**
+ * Parses a created-at timestamp into epoch milliseconds.
+ *
+ * @param {string} raw
+ * @returns {number}
+ */
 export function parseCreatedAt(raw) {
   if (typeof raw !== "string" || raw.trim().length === 0) {
     return Number.NaN;
@@ -33,6 +124,12 @@ export function parseCreatedAt(raw) {
   return Number.isNaN(parsed) ? Number.NaN : parsed;
 }
 
+/**
+ * Formats a created-at timestamp for display.
+ *
+ * @param {string} raw
+ * @returns {string}
+ */
 export function formatCreatedAt(raw) {
   const parsed = parseCreatedAt(raw);
   if (Number.isNaN(parsed)) {
@@ -42,6 +139,12 @@ export function formatCreatedAt(raw) {
   return new Date(parsed).toLocaleString();
 }
 
+/**
+ * Formats a numeric value with two decimal places for UI display.
+ *
+ * @param {number} value
+ * @returns {string}
+ */
 function normalizeDecimal(value) {
   if (typeof value !== "number" || Number.isNaN(value)) {
     return "N/A";
@@ -50,6 +153,12 @@ function normalizeDecimal(value) {
   return value.toFixed(2);
 }
 
+/**
+ * Builds a league-indexed breakdown of max-CP evaluations for result display.
+ *
+ * @param {Array<PokemonResultMaxCPEvaluation>|null|undefined} maxCPEvaluations
+ * @returns {LeagueBreakdownBuckets}
+ */
 export function buildLeagueBreakdown(maxCPEvaluations) {
   return buildPokemonLeagueBreakdown(maxCPEvaluations, {
     transformEntry: (entry) => ({
@@ -60,6 +169,12 @@ export function buildLeagueBreakdown(maxCPEvaluations) {
   }).byLeague;
 }
 
+/**
+ * Selects the best available league entry across all supported leagues.
+ *
+ * @param {Partial<LeagueBreakdownBuckets>} byLeague
+ * @returns {LeagueDisplayEntry|null}
+ */
 function selectBestLeagueEntry(byLeague) {
   const allEntries = leagueTabs.flatMap((tab) => (Array.isArray(byLeague[tab.key]) ? byLeague[tab.key] : []));
 
@@ -89,12 +204,20 @@ function selectBestLeagueEntry(byLeague) {
   return sortedEntries[0];
 }
 
+/** @type {{ little: null, great: number, ultra: number }} */
 export const leagueBestCpThresholds = {
   little: null,
   great: 1400,
   ultra: 2250,
 };
 
+/**
+ * Filters league entries to the subset considered relevant for list views.
+ *
+ * @param {Array<LeagueDisplayEntry>|null|undefined} entries
+ * @param {LeagueKey} league
+ * @returns {Array<LeagueDisplayEntry>}
+ */
 export function filterLeagueEntriesByRelevance(entries, league) {
   const normalizedEntries = Array.isArray(entries) ? entries : [];
   const threshold = leagueBestCpThresholds[league] ?? null;
@@ -106,6 +229,13 @@ export function filterLeagueEntriesByRelevance(entries, league) {
   return normalizedEntries.filter((entry) => typeof entry?.bestCp === "number" && !Number.isNaN(entry.bestCp) && entry.bestCp >= threshold);
 }
 
+/**
+ * Builds the derived row model used by the all-Pokemon listing.
+ *
+ * @param {PokemonResultRecord} result
+ * @param {LeagueKey} league
+ * @returns {AllPokemonRow|null}
+ */
 export function buildAllPokemonRow(result, league) {
   const { byLeague } = buildPokemonLeagueBreakdown(result?.maxCpEvaluations || [], {
     transformEntry: (entry) => ({
@@ -134,6 +264,12 @@ export function buildAllPokemonRow(result, league) {
   };
 }
 
+/**
+ * Builds a stable deduplication key from result identity fields.
+ *
+ * @param {PokemonResultRecord|null|undefined} result
+ * @returns {string}
+ */
 function dedupeIdentity(result) {
   const levelEstimate = result?.level?.estimate;
   const levelPart = typeof levelEstimate === "number" && !Number.isNaN(levelEstimate) ? String(levelEstimate) : "nil";
@@ -150,6 +286,12 @@ function dedupeIdentity(result) {
   ].join("|");
 }
 
+/**
+ * Deduplicates result records by identity, keeping the most recent timestamp.
+ *
+ * @param {Array<PokemonResultRecord>|null|undefined} results
+ * @returns {Array<PokemonResultRecord>}
+ */
 export function dedupePokemonResults(results) {
   if (!Array.isArray(results)) {
     return [];
@@ -174,6 +316,12 @@ export function dedupePokemonResults(results) {
   return Array.from(latestByIdentity.values()).map((entry) => entry.result);
 }
 
+/**
+ * Formats a species identifier into the shared display name format.
+ *
+ * @param {string} speciesName
+ * @returns {string}
+ */
 export function formatSpeciesName(speciesName) {
   return formatSpeciesDisplayName(speciesName);
 }
