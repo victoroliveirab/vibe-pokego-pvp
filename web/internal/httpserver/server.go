@@ -92,7 +92,7 @@ func New(cfg config.Config, storage config.StorageConfig) (*http.Server, error) 
 	})
 	mux.Handle("/protected/", withSessionValidation(sessionStore, time.Now, protectedMux))
 
-	handler := withCORS(cfg.CORSOrigins, mux)
+	handler := withRequestLogging(withCORS(cfg.CORSOrigins, mux))
 
 	return &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

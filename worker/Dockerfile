@@ -1,6 +1,6 @@
 FROM golang:1.22-bookworm
 
-WORKDIR /app
+WORKDIR /app/worker
 
 ENV CGO_ENABLED=1
 
@@ -13,10 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	ca-certificates \
 	&& rm -rf /var/lib/apt/lists/*
 
-COPY go.mod ./
+COPY shared /app/shared
+COPY worker/go.mod worker/go.sum ./
 RUN go mod download
 
-COPY . .
+COPY worker .
 
 EXPOSE 8081
 

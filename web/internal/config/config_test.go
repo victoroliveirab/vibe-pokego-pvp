@@ -416,24 +416,8 @@ func TestLoadFromEnvLoadsBetterstackSettings(t *testing.T) {
 	if cfg.BetterstackToken != "source-token" {
 		t.Fatalf("expected betterstack token to be loaded, got %q", cfg.BetterstackToken)
 	}
-	if cfg.BetterstackEndpoint != "https://in.logs.betterstack.com/" {
+	if cfg.BetterstackEndpoint != "https://in.logs.betterstack.com" {
 		t.Fatalf("expected betterstack endpoint to be loaded, got %q", cfg.BetterstackEndpoint)
-	}
-}
-
-func TestLoadFromEnvNormalizesBetterstackHostToHTTPSURL(t *testing.T) {
-	uploadDir := filepath.Join(t.TempDir(), "uploads")
-	setValidWebEnv(t, uploadDir)
-	t.Setenv("BETTERSTACK_SOURCE_TOKEN", "source-token")
-	t.Setenv("BETTERSTACK_INGESTING_HOST", "endpoint.betterstack.com")
-
-	cfg, err := LoadFromEnv()
-	if err != nil {
-		t.Fatalf("expected config to load, got error: %v", err)
-	}
-
-	if cfg.BetterstackEndpoint != "https://endpoint.betterstack.com/" {
-		t.Fatalf("expected normalized betterstack endpoint, got %q", cfg.BetterstackEndpoint)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"image/draw"
 	"image/png"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -158,6 +159,8 @@ func (p imageProcessor) Process(
 	job jobqueue.ClaimedJob,
 	reportProgress ProgressReporter,
 ) (processErr error) {
+	logger := slog.Default().With("job_id", job.ID, "upload_id", job.UploadID)
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -277,6 +280,8 @@ func (p imageProcessor) Process(
 		}
 	}
 
+	logger.Info("job media resolved", "media_kind", mediaKind)
+
 	switch mediaKind {
 	case "image":
 		return p.processImage(ctx, job, reportProgress, artifactWriter, debugStore, mediaURL)
@@ -337,6 +342,8 @@ func (p imageProcessor) processImage(
 	debugStore debugtrace.Store,
 	mediaURL string,
 ) error {
+	logger := slog.Default().With("job_id", job.ID, "upload_id", job.UploadID)
+
 	if err := p.reportStage(ctx, reportProgress, jobqueue.StageDecodingImage, progressDecodingImage); err != nil {
 		return err
 	}
@@ -370,6 +377,8 @@ func (p imageProcessor) processImage(
 	); err != nil {
 		return err
 	}
+
+	logger.Info("image decoded for processing", "path", localPath, "bounds", decodedImage.Image.Bounds())
 
 	if err := p.reportStage(ctx, reportProgress, jobqueue.StageExtractingAppraisal, progressExtractingAppraisal); err != nil {
 		return err
@@ -414,6 +423,8 @@ func (p imageProcessor) processImage(
 	); err != nil {
 		return err
 	}
+
+	logger.Info("image appraisal extraction completed")
 
 	if err := p.reportStage(ctx, reportProgress, jobqueue.StagePostprocessing, progressPostprocessing); err != nil {
 		return err
@@ -463,6 +474,8 @@ func (p imageProcessor) processImage(
 		return err
 	}
 
+	logger.Info("image processing results persisted", "accepted_count", acceptedCount, "has_pending", acceptedCount > 1)
+
 	return finalizeProcessingOutcome(acceptedCount > 1, acceptedCount)
 }
 
@@ -474,6 +487,8 @@ func (p imageProcessor) processVideo(
 	debugStore debugtrace.Store,
 	mediaURL string,
 ) error {
+	logger := slog.Default().With("job_id", job.ID, "upload_id", job.UploadID)
+
 	if err := p.reportStage(ctx, reportProgress, jobqueue.StageDecodingVideo, progressDecodingVideo); err != nil {
 		return err
 	}
@@ -499,6 +514,8 @@ func (p imageProcessor) processVideo(
 		return err
 	}
 
+	logger.Info("video resolved for processing", "path", localPath)
+
 	if err := p.reportStage(ctx, reportProgress, jobqueue.StageSamplingFrames, progressSamplingFrames); err != nil {
 		return err
 	}
@@ -522,6 +539,8 @@ func (p imageProcessor) processVideo(
 	); err != nil {
 		return err
 	}
+
+	logger.Info("video frame sampling completed", "sample_count", len(samples))
 
 	if err := p.reportStage(ctx, reportProgress, jobqueue.StageExtractingAppraisal, progressExtractingAppraisal); err != nil {
 		return err
@@ -567,6 +586,16 @@ func (p imageProcessor) processVideo(
 			"motion_delta_score": stability.MotionDeltaScore,
 			"summary_text":       strings.TrimSpace(stabilitySummary),
 		})
+
+		logger.Debug(
+			"video frame evaluated",
+			"frame_index", idx+1,
+			"timestamp_ms", sample.TimestampMS,
+			"stable", stability.Stable,
+			"accepted_for_ocr", acceptedForOCR,
+			"stable_streak", nextStableStreak,
+			"disposition", disposition,
+		)
 
 		if err := writeVideoFrameDispositionImage(artifactWriter, idx+1, disposition, sample.Image); err != nil {
 			return ProcessingError{
@@ -681,6 +710,8 @@ func (p imageProcessor) processVideo(
 		return err
 	}
 
+	logger.Info("video appraisal extraction completed", "processed_frame_count", len(frames))
+
 	if err := p.reportStage(ctx, reportProgress, jobqueue.StagePostprocessing, progressPostprocessing); err != nil {
 		return err
 	}
@@ -721,6 +752,13 @@ func (p imageProcessor) processVideo(
 	); err != nil {
 		return err
 	}
+
+	logger.Info(
+		"video processing results persisted",
+		"processed_frame_count", len(frames),
+		"accepted_count", acceptedCount,
+		"has_pending", hasPending,
+	)
 
 	return finalizeProcessingOutcome(hasPending, acceptedCount)
 }

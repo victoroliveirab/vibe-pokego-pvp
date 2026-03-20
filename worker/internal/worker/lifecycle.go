@@ -24,6 +24,13 @@ func runClaimedJobLifecycle(
 		processor = newStubProcessor(heartbeatInterval)
 	}
 
+	logger = logger.With(
+		"job_id", job.ID,
+		"upload_id", job.UploadID,
+		"worker_id", workerID,
+	)
+	logger.Info("job processing started")
+
 	lifecycleCtx, cancelLifecycle := context.WithCancel(ctx)
 	defer cancelLifecycle()
 
@@ -61,6 +68,8 @@ func runClaimedJobLifecycle(
 			return errOwnershipLost
 		}
 
+		logger.Info("job progress updated", "stage", stage, "progress", progress)
+
 		return nil
 	}
 
@@ -73,44 +82,44 @@ func runClaimedJobLifecycle(
 		if errors.As(runErr, &pendingSignal) {
 			ok, err := queue.MarkJobPendingUserDedup(ctx, job.ID, workerID, nowFn())
 			if err != nil {
-				logger.Error("mark job pending-user-dedup errored", "job_id", job.ID, "error", err)
+				logger.Error("mark job pending-user-dedup errored", "error", err)
 				return
 			}
 			if !ok {
-				logger.Warn("mark job pending-user-dedup lost ownership", "job_id", job.ID, "worker_id", workerID)
+				logger.Warn("mark job pending-user-dedup lost ownership")
 				return
 			}
 
-			logger.Info("job terminalized as pending-user-dedup", "job_id", job.ID)
+			logger.Info("job terminalized as pending-user-dedup")
 			return
 		}
 
 		code, message := failureDetailsForError(runErr)
 		ok, err := queue.MarkJobFailed(ctx, job.ID, workerID, code, message, nowFn())
 		if err != nil {
-			logger.Error("mark job failed errored", "job_id", job.ID, "error", err)
+			logger.Error("mark job failed errored", "error", err)
 			return
 		}
 		if !ok {
-			logger.Warn("mark job failed lost ownership", "job_id", job.ID, "worker_id", workerID)
+			logger.Warn("mark job failed lost ownership")
 			return
 		}
 
-		logger.Info("job terminalized as failed", "job_id", job.ID, "error_code", code)
+		logger.Info("job terminalized as failed", "error_code", code)
 		return
 	}
 
 	ok, err := queue.MarkJobSucceeded(ctx, job.ID, workerID, nowFn())
 	if err != nil {
-		logger.Error("mark job succeeded errored", "job_id", job.ID, "error", err)
+		logger.Error("mark job succeeded errored", "error", err)
 		return
 	}
 	if !ok {
-		logger.Warn("mark job succeeded lost ownership", "job_id", job.ID, "worker_id", workerID)
+		logger.Warn("mark job succeeded lost ownership")
 		return
 	}
 
-	logger.Info("job terminalized as succeeded", "job_id", job.ID)
+	logger.Info("job terminalized as succeeded")
 }
 
 var errOwnershipLost = errors.New("job ownership lost")
