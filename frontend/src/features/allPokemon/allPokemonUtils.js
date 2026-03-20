@@ -1,8 +1,12 @@
-export const leagueTabs = [
-  { key: "little", label: "Little" },
-  { key: "great", label: "Great" },
-  { key: "ultra", label: "Ultra" },
-];
+import {
+  buildPokemonLeagueBreakdown,
+  formatSpeciesDisplayName,
+  isValidRank,
+  leagueTabs,
+  mapMaxCPToLeague,
+} from "../results/pokemonLeagueDisplayUtils";
+
+export { isValidRank, leagueTabs, mapMaxCPToLeague };
 
 export const sortOptions = [
   { key: "scanDateAsc", label: "Scan date (oldest first)" },
@@ -10,10 +14,6 @@ export const sortOptions = [
   { key: "rankAsc", label: "Rank (best first)" },
   { key: "rankDesc", label: "Rank (worst first)" },
 ];
-
-function isValidRank(rank) {
-  return typeof rank === "number" && !Number.isNaN(rank) && rank > 0;
-}
 
 function formatRank(rank) {
   if (!isValidRank(rank)) {
@@ -23,56 +23,6 @@ function formatRank(rank) {
   return `#${rank}`;
 }
 
-function isValidPercentage(value) {
-  return typeof value === "number" && !Number.isNaN(value);
-}
-
-function compareLeagueEntries(left, right) {
-  const leftRank = isValidRank(left.rank) ? left.rank : Number.POSITIVE_INFINITY;
-  const rightRank = isValidRank(right.rank) ? right.rank : Number.POSITIVE_INFINITY;
-
-  if (leftRank !== rightRank) {
-    return leftRank - rightRank;
-  }
-
-  const leftPercentage = isValidPercentage(left.percentage) ? left.percentage : Number.NEGATIVE_INFINITY;
-  const rightPercentage = isValidPercentage(right.percentage) ? right.percentage : Number.NEGATIVE_INFINITY;
-
-  if (rightPercentage !== leftPercentage) {
-    return rightPercentage - leftPercentage;
-  }
-
-  if (left.maxCp !== right.maxCp) {
-    return right.maxCp - left.maxCp;
-  }
-
-  return String(left.evaluatedSpeciesId).localeCompare(String(right.evaluatedSpeciesId));
-}
-
-function normalizeSpeciesDisplayName(speciesId) {
-  if (typeof speciesId !== "string" || speciesId.trim().length === 0) {
-    return "Unknown";
-  }
-
-  return speciesId
-    .trim()
-    .replace(/[\-_]+/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-export function mapMaxCPToLeague(maxCp) {
-  if (maxCp === 500) {
-    return "little";
-  }
-  if (maxCp === 1500) {
-    return "great";
-  }
-  if (maxCp === 2500) {
-    return "ultra";
-  }
-  return null;
-}
 
 export function parseCreatedAt(raw) {
   if (typeof raw !== "string" || raw.trim().length === 0) {
@@ -101,39 +51,87 @@ function normalizeDecimal(value) {
 }
 
 export function buildLeagueBreakdown(maxCPEvaluations) {
-  const byLeague = {
-    little: [],
-    great: [],
-    ultra: [],
-  };
-
-  const entries = Array.isArray(maxCPEvaluations) ? maxCPEvaluations : [];
-
-  for (const entry of entries) {
-    if (!entry || typeof entry !== "object") {
-      continue;
-    }
-
-    const league = mapMaxCPToLeague(entry.maxCp);
-    if (!league) {
-      continue;
-    }
-
-    byLeague[league].push({
+  return buildPokemonLeagueBreakdown(maxCPEvaluations, {
+    transformEntry: (entry) => ({
       ...entry,
-      league,
-      speciesDisplayName: normalizeSpeciesDisplayName(entry.evaluatedSpeciesId),
       formattedPercentage: normalizeDecimal(entry.percentage),
-      formattedBestCp: isValidRank(entry.bestCp) ? entry.bestCp : entry.bestCp,
       rankDisplay: formatRank(entry.rank),
-    });
+    }),
+  }).byLeague;
+}
+
+function selectBestLeagueEntry(byLeague) {
+  const allEntries = leagueTabs.flatMap((tab) => (Array.isArray(byLeague[tab.key]) ? byLeague[tab.key] : []));
+
+  if (allEntries.length === 0) {
+    return null;
   }
 
-  for (const key of leagueTabs.map((tab) => tab.key)) {
-    byLeague[key].sort(compareLeagueEntries);
+  const orderByLeague = new Map(leagueTabs.map((tab, index) => [tab.key, index]));
+  const sortedEntries = [...allEntries].sort((left, right) => {
+    const leftPercentage = typeof left?.percentage === "number" && !Number.isNaN(left.percentage) ? left.percentage : Number.NEGATIVE_INFINITY;
+    const rightPercentage = typeof right?.percentage === "number" && !Number.isNaN(right.percentage) ? right.percentage : Number.NEGATIVE_INFINITY;
+
+    if (rightPercentage !== leftPercentage) {
+      return rightPercentage - leftPercentage;
+    }
+
+    const leftRank = isValidRank(left?.rank) ? left.rank : Number.POSITIVE_INFINITY;
+    const rightRank = isValidRank(right?.rank) ? right.rank : Number.POSITIVE_INFINITY;
+
+    if (leftRank !== rightRank) {
+      return leftRank - rightRank;
+    }
+
+    return (orderByLeague.get(left?.league) ?? Number.POSITIVE_INFINITY) - (orderByLeague.get(right?.league) ?? Number.POSITIVE_INFINITY);
+  });
+
+  return sortedEntries[0];
+}
+
+export const leagueBestCpThresholds = {
+  little: null,
+  great: 1400,
+  ultra: 2250,
+};
+
+export function filterLeagueEntriesByRelevance(entries, league) {
+  const normalizedEntries = Array.isArray(entries) ? entries : [];
+  const threshold = leagueBestCpThresholds[league] ?? null;
+
+  if (threshold === null) {
+    return normalizedEntries;
   }
 
-  return byLeague;
+  return normalizedEntries.filter((entry) => typeof entry?.bestCp === "number" && !Number.isNaN(entry.bestCp) && entry.bestCp >= threshold);
+}
+
+export function buildAllPokemonRow(result, league) {
+  const { byLeague } = buildPokemonLeagueBreakdown(result?.maxCpEvaluations || [], {
+    transformEntry: (entry) => ({
+      ...entry,
+      formattedPercentage: normalizeDecimal(entry.percentage),
+      rankDisplay: formatRank(entry.rank),
+    }),
+  });
+  const activeLeagueEntries = filterLeagueEntriesByRelevance(byLeague[league], league);
+
+  if (activeLeagueEntries.length === 0) {
+    return null;
+  }
+
+  const bestActiveEntry = activeLeagueEntries[0];
+  const bestLeagueEntry = selectBestLeagueEntry(byLeague);
+
+  return {
+    activeLeagueEntries,
+    bestActiveEntry,
+    bestLeagueEntry,
+    bestRank: isValidRank(bestActiveEntry.rank) ? bestActiveEntry.rank : null,
+    bestTier: bestActiveEntry.tier || "N/A",
+    scanDate: parseCreatedAt(result?.createdAt),
+    result,
+  };
 }
 
 function dedupeIdentity(result) {
@@ -177,5 +175,5 @@ export function dedupePokemonResults(results) {
 }
 
 export function formatSpeciesName(speciesName) {
-  return normalizeSpeciesDisplayName(speciesName);
+  return formatSpeciesDisplayName(speciesName);
 }
