@@ -12,10 +12,10 @@ import (
 	"syscall"
 	"time"
 
+	logging "github.com/victoroliveirab/vibe-pokemongo-appraisal-app/shared/logging"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/appraisal"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/config"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/jobqueue"
-	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/logging"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/ocr"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/pvp"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/worker/internal/species"
@@ -24,7 +24,11 @@ import (
 
 // Run starts the worker loop for health checks and queue lifecycle processing.
 func Run(cfg config.Config, storage config.StorageConfig) {
-	logger := logging.New(cfg.AppEnv, cfg.BetterstackToken, cfg.BetterstackEndpoint)
+	logger := logging.New(logging.Config{
+		Env:                 cfg.AppEnv,
+		BetterstackToken:    cfg.BetterstackToken,
+		BetterstackEndpoint: cfg.BetterstackEndpoint,
+	})
 	workerID := newWorkerID()
 	leaseTimeout := leaseTimeoutForPollInterval(cfg.PollIntervalSecs)
 	heartbeatInterval := heartbeatIntervalForPollInterval(cfg.PollIntervalSecs)
@@ -169,9 +173,13 @@ func runQueueTick(
 		logger.Info("expired stale jobs", "count", expiredRows, "cutoff", cutoff.Format(time.RFC3339))
 	}
 
-	job, _, err := queueStore.ClaimNextQueuedJob(ctx, workerID, now)
+	job, claimed, err := queueStore.ClaimNextQueuedJob(ctx, workerID, now)
 	if err != nil {
 		logger.Warn("failed to claim queued job", "error", err)
+		return
+	}
+
+	if !claimed {
 		return
 	}
 
