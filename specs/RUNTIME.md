@@ -22,7 +22,9 @@ This document defines runtime environment variables used by the local stack and 
 
 - `CLERK_SECRET_KEY` is required.
 - `CLERK_AUTHORIZED_PARTIES` is required and should contain the frontend origins allowed to mint bearer tokens.
+- `CLERK_PROXY_URL` is optional and enables same-origin Clerk Frontend API proxying (for example `/api/__clerk`).
 - `CLERK_JWKS_URL` is optional and, when set, must be a valid URL.
+- `CLERK_FRONTEND_API_URL` is optional and defaults to `https://frontend-api.clerk.dev` when proxying is enabled.
 - `VITE_CLERK_PUBLISHABLE_KEY` is required by the frontend runtime even though it is consumed outside the Go service.
 
 ## Database Variable Matrix

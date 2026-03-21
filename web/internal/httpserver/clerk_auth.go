@@ -33,6 +33,9 @@ func newClerkAuthenticator(cfg config.ClerkConfig) (*clerkAuthenticator, error) 
 	if len(cfg.AuthorizedParties) > 0 {
 		options = append(options, clerkhttp.AuthorizedPartyMatches(cfg.AuthorizedParties...))
 	}
+	if strings.TrimSpace(cfg.ProxyURL) != "" {
+		options = append(options, clerkhttp.ProxyURL(cfg.ProxyURL))
+	}
 
 	if client, err := newClerkJWKSClient(cfg); err != nil {
 		return nil, err
