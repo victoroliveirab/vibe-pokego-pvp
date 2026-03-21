@@ -6,9 +6,13 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
-# Vite reads VITE_* at build time. Inject API base during image build.
+# Vite reads VITE_* at build time. Inject frontend config during image build.
 ARG VITE_API_BASE_URL=/api
-RUN VITE_API_BASE_URL="${VITE_API_BASE_URL}" npm run build
+ARG VITE_CLERK_PUBLISHABLE_KEY
+RUN \
+  VITE_API_BASE_URL="${VITE_API_BASE_URL}" \
+  VITE_CLERK_PUBLISHABLE_KEY="${VITE_CLERK_PUBLISHABLE_KEY}" \
+  npm run build
 
 EXPOSE 5173
 
