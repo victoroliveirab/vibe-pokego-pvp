@@ -22,6 +22,7 @@ type clerkTestTokenConfig struct {
 func newClerkTestAuthenticator(t *testing.T, cfg clerkTestTokenConfig) (*clerkAuthenticator, string) {
 	t.Helper()
 
+	cfg = normalizeClerkTestTokenConfig(cfg)
 	privateKey, publicKeyPEM := generateClerkTestKeyPair(t)
 	token := signClerkTestToken(t, privateKey, cfg)
 
@@ -58,15 +59,7 @@ func generateClerkTestKeyPair(t *testing.T) (*rsa.PrivateKey, string) {
 func signClerkTestToken(t *testing.T, privateKey *rsa.PrivateKey, cfg clerkTestTokenConfig) string {
 	t.Helper()
 
-	if cfg.authorizedParty == "" {
-		cfg.authorizedParty = "http://localhost:4173"
-	}
-	if cfg.issuer == "" {
-		cfg.issuer = "https://issuer.test"
-	}
-	if cfg.subject == "" {
-		cfg.subject = "user_test_123"
-	}
+	cfg = normalizeClerkTestTokenConfig(cfg)
 
 	signer, err := jose.NewSigner(jose.SigningKey{
 		Algorithm: jose.RS256,
@@ -92,4 +85,18 @@ func signClerkTestToken(t *testing.T, privateKey *rsa.PrivateKey, cfg clerkTestT
 	}
 
 	return token
+}
+
+func normalizeClerkTestTokenConfig(cfg clerkTestTokenConfig) clerkTestTokenConfig {
+	if cfg.authorizedParty == "" {
+		cfg.authorizedParty = "http://localhost:4173"
+	}
+	if cfg.issuer == "" {
+		cfg.issuer = "https://issuer.test"
+	}
+	if cfg.subject == "" {
+		cfg.subject = "user_test_123"
+	}
+
+	return cfg
 }
