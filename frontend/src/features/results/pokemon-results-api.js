@@ -17,7 +17,7 @@ const defaultApiClient = createApiClient();
 
 /**
  * @typedef {object} PokemonResultsApiClient
- * @property {function(string, { method?: string, headers?: HeadersInit, body?: BodyInit|null, requiresSession?: boolean, sessionId?: string }=): Promise<JsonValue|null>} request
+ * @property {function(string, { method?: string, headers?: HeadersInit, body?: BodyInit|null, requiresIdentity?: boolean, sessionId?: string }=): Promise<JsonValue|null>} request
  */
 
 /**
@@ -527,7 +527,7 @@ export function createPokemonResultsApi({ apiClient = defaultApiClient } = {}) {
     async getPokemonResults({ sessionId = "" } = {}) {
       const payload = await apiClient.request("/pokemon", {
         method: "GET",
-        requiresSession: true,
+        requiresIdentity: true,
         sessionId,
       });
 
@@ -543,7 +543,7 @@ export function createPokemonResultsApi({ apiClient = defaultApiClient } = {}) {
     async getPendingSpeciesReadings({ sessionId = "" } = {}) {
       const payload = await apiClient.request("/pokemon/pending-species", {
         method: "GET",
-        requiresSession: true,
+        requiresIdentity: true,
         sessionId,
       });
 
@@ -561,7 +561,7 @@ export function createPokemonResultsApi({ apiClient = defaultApiClient } = {}) {
       const normalizedOptionID = normalizeRequiredString(optionId, "optionId", { readingId, optionId });
       const payload = await apiClient.request(`/pokemon/pending-species/${encodeURIComponent(normalizedReadingID)}`, {
         method: "PATCH",
-        requiresSession: true,
+        requiresIdentity: true,
         sessionId,
         headers: {
           "Content-Type": "application/json",
@@ -584,7 +584,7 @@ export function createPokemonResultsApi({ apiClient = defaultApiClient } = {}) {
       const normalizedResultID = normalizeRequiredString(resultId, "resultId", { resultId });
       await apiClient.request(`/pokemon/${encodeURIComponent(normalizedResultID)}`, {
         method: "DELETE",
-        requiresSession: true,
+        requiresIdentity: true,
         sessionId,
       });
     },

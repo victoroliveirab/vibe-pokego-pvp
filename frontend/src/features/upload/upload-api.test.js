@@ -28,7 +28,7 @@ describe("upload api", () => {
     expect(options).toEqual(
       expect.objectContaining({
         method: "POST",
-        requiresSession: true,
+        requiresIdentity: true,
         sessionId: "session-1",
       }),
     );

@@ -6,7 +6,33 @@ function createSessionHook() {
     sessionId: "session-1",
     isLoading: false,
     error: null,
+    mode: "guest",
+    isSignedIn: false,
+    apiClient: null,
   });
+}
+
+function createClerkIdentityHook() {
+  return () => ({
+    sessionId: "clerk:user_123",
+    isLoading: false,
+    error: null,
+    mode: "clerk",
+    isSignedIn: true,
+    user: { id: "user_123" },
+    apiClient: null,
+  });
+}
+
+function createMutableIdentityHook(initialIdentity) {
+  let currentIdentity = initialIdentity;
+
+  const useSessionHook = () => currentIdentity;
+  useSessionHook.setIdentity = (nextIdentity) => {
+    currentIdentity = nextIdentity;
+  };
+
+  return useSessionHook;
 }
 
 function createPokemonResultsApi({ getPokemonResults } = {}) {
@@ -889,5 +915,108 @@ describe("upload page job monitoring", () => {
       expect(screen.getByRole("dialog")).toBeTruthy();
       expect(screen.getByText("Delete failed.")).toBeTruthy();
     });
+  });
+
+  it("supports signed-in identity mode without guest bootstrap state", async () => {
+    const uploadApi = {
+      submitUpload: vi.fn().mockResolvedValue({
+        uploadId: "upload-1",
+        jobId: "job-1",
+      }),
+    };
+    const pokemonResultsApi = createPokemonResultsApi();
+
+    render(
+      <UploadPage
+        jobApi={{ getActiveJob: vi.fn().mockResolvedValue(null), getJobStatus: vi.fn() }}
+        pokemonResultsApi={pokemonResultsApi}
+        uploadApi={uploadApi}
+        useSessionHook={createClerkIdentityHook()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(pokemonResultsApi.getPokemonResults).toHaveBeenCalledWith({
+        sessionId: "clerk:user_123",
+      });
+    });
+
+    const file = new File(["image"], "signed-in.png", { type: "image/png" });
+    fireEvent.change(uploadInput(), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit Upload" }));
+
+    await waitFor(() => {
+      expect(uploadApi.submitUpload).toHaveBeenCalledWith({
+        file,
+        sessionId: "clerk:user_123",
+      });
+    });
+  });
+
+  it("resets guest-bound upload state when identity switches to a signed-in user", async () => {
+    const useSessionHook = createMutableIdentityHook({
+      sessionId: "session-1",
+      isLoading: false,
+      error: null,
+      mode: "guest",
+      isSignedIn: false,
+      apiClient: null,
+    });
+    const pokemonResultsApi = createPokemonResultsApi({
+      getPokemonResults: vi.fn().mockImplementation(async ({ sessionId }) => ({
+        results:
+          sessionId === "clerk:user_123"
+            ? [createPokemonResult({ id: "clerk-1", speciesName: "Pikachu" })]
+            : [createPokemonResult({ id: "guest-1", speciesName: "Machop" })],
+      })),
+    });
+
+    const { rerender } = render(
+      <UploadPage
+        jobApi={{ getActiveJob: vi.fn().mockResolvedValue(null), getJobStatus: vi.fn() }}
+        pokemonResultsApi={pokemonResultsApi}
+        uploadApi={{ submitUpload: vi.fn() }}
+        useSessionHook={useSessionHook}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Guest scans can disappear at any time and will be cleared when you sign in. Sign up to keep your records saved and synced across devices.")).toBeTruthy();
+      expect(screen.getAllByText("Machop").length).toBeGreaterThan(0);
+    });
+
+    const file = new File(["guest"], "guest.png", { type: "image/png" });
+    fireEvent.change(uploadInput(), { target: { files: [file] } });
+    expect(screen.getByText("Selected file: guest.png")).toBeTruthy();
+
+    useSessionHook.setIdentity({
+      sessionId: "clerk:user_123",
+      isLoading: false,
+      error: null,
+      mode: "clerk",
+      isSignedIn: true,
+      user: { id: "user_123" },
+      apiClient: null,
+    });
+    rerender(
+      <UploadPage
+        jobApi={{ getActiveJob: vi.fn().mockResolvedValue(null), getJobStatus: vi.fn() }}
+        pokemonResultsApi={pokemonResultsApi}
+        uploadApi={{ submitUpload: vi.fn() }}
+        useSessionHook={useSessionHook}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Pikachu").length).toBeGreaterThan(0);
+    });
+
+    expect(screen.queryByText("Machop")).toBeNull();
+    expect(
+      screen.queryByText(
+        "Guest scans can disappear at any time and will be cleared when you sign in. Sign up to keep your records saved and synced across devices.",
+      ),
+    ).toBeNull();
+    expect(screen.getByText("Selected file: No file selected")).toBeTruthy();
   });
 });

@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/config"
+	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/session"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/upload"
 )
 
@@ -366,28 +368,61 @@ type jobStatusIntegrationEnv struct {
 }
 
 func newJobStatusIntegrationEnv(t *testing.T) jobStatusIntegrationEnv {
+	return newJobStatusIntegrationEnvWithAuthenticator(t, nil)
+}
+
+func newJobStatusIntegrationEnvWithAuthenticator(t *testing.T, authenticator *clerkAuthenticator) jobStatusIntegrationEnv {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "job-status-integration.db")
 	storageDir := filepath.Join(t.TempDir(), "uploads")
-
-	srv, err := New(config.Config{
-		AppEnv:       "test",
-		Port:         0,
-		DatabasePath: dbPath,
-		Storage: config.StorageConfig{
-			Mode:     config.UploadStorageModeLocal,
-			LocalDir: storageDir,
-		},
-	}, config.StorageConfig{
+	storageCfg := config.StorageConfig{
 		Mode:     config.UploadStorageModeLocal,
 		LocalDir: storageDir,
-	})
-	if err != nil {
-		t.Fatalf("expected server to initialize, got: %v", err)
 	}
 
-	server := httptest.NewServer(srv.Handler)
+	sessionStore, err := session.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("expected sqlite session store, got: %v", err)
+	}
+
+	uploadStore, err := upload.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("expected sqlite upload store, got: %v", err)
+	}
+
+	mediaStorage, err := newMediaStorageForMode(storageCfg)
+	if err != nil {
+		t.Fatalf("expected media storage to initialize, got: %v", err)
+	}
+
+	durationProber := durationProberFunc(func(context.Context, string) (float64, error) {
+		return 30, nil
+	})
+	uploadsHandler := newUploadHandler(uploadStore, mediaStorage, durationProber, time.Now)
+	jobsHandler := newJobStatusHandler(uploadStore)
+	activeJobHandler := newActiveJobStatusHandler(uploadStore)
+	retryHandler := newJobRetryHandler(uploadStore, time.Now)
+	pokemonHandler := newPokemonResultsHandler(uploadStore)
+	deletePokemonHandler := newPokemonDeleteHandler(uploadStore, time.Now)
+	pendingSpeciesHandler := newPokemonPendingSpeciesHandler(uploadStore)
+	pendingSpeciesResolveHandler := newPokemonPendingSpeciesResolveHandler(uploadStore, time.Now)
+
+	mux := http.NewServeMux()
+	mux.Handle("/session", newSessionHandler(sessionStore, authenticator, time.Now))
+	mux.Handle("/uploads", withSessionValidation(sessionStore, authenticator, time.Now, uploadsHandler))
+	mux.Handle("/jobs/active", withSessionValidation(sessionStore, authenticator, time.Now, activeJobHandler))
+	mux.Handle("/jobs/{jobId}", withSessionValidation(sessionStore, authenticator, time.Now, jobsHandler))
+	mux.Handle("/jobs/{jobId}/retry", withSessionValidation(sessionStore, authenticator, time.Now, retryHandler))
+	mux.Handle("/pokemon", withSessionValidation(sessionStore, authenticator, time.Now, pokemonHandler))
+	mux.Handle("/pokemon/{resultId}", withSessionValidation(sessionStore, authenticator, time.Now, deletePokemonHandler))
+	mux.Handle("/pokemon/pending-species", withSessionValidation(sessionStore, authenticator, time.Now, pendingSpeciesHandler))
+	mux.Handle(
+		"/pokemon/pending-species/{readingId}",
+		withSessionValidation(sessionStore, authenticator, time.Now, pendingSpeciesResolveHandler),
+	)
+
+	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 
 	return jobStatusIntegrationEnv{
@@ -424,6 +459,30 @@ func createUploadAndJobViaHTTP(t *testing.T, env jobStatusIntegrationEnv, sessio
 	}
 	if created.UploadID == "" || created.JobID == "" {
 		t.Fatalf("expected uploadId/jobId in response, got %#v", created)
+	}
+
+	return created
+}
+
+func createUploadAndJobViaAuthorization(t *testing.T, env jobStatusIntegrationEnv, token string) uploadAndJobCreated {
+	t.Helper()
+
+	req := newMultipartUploadClientRequest(t, env.server.URL+"/uploads", "file", "avatar.png", pngFixtureBytes())
+	req.Header.Set(authorizationHeaderName, "Bearer "+token)
+
+	resp, err := env.client.Do(req)
+	if err != nil {
+		t.Fatalf("expected authorized upload request to succeed, got: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, resp.StatusCode)
+	}
+
+	var created uploadAndJobCreated
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatalf("expected upload response payload, got: %v", err)
 	}
 
 	return created

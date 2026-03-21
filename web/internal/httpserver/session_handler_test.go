@@ -24,7 +24,7 @@ func TestSessionHandlerCreateSuccess(t *testing.T) {
 		},
 	}
 
-	handler := newSessionHandler(store, func() time.Time { return now })
+	handler := newSessionHandler(store, nil, func() time.Time { return now })
 
 	req := httptest.NewRequest(http.MethodPost, "/session", nil)
 	rec := httptest.NewRecorder()
@@ -47,7 +47,7 @@ func TestSessionHandlerCreateSuccess(t *testing.T) {
 }
 
 func TestSessionHandlerMethodNotAllowed(t *testing.T) {
-	handler := newSessionHandler(&fakeSessionStore{}, time.Now)
+	handler := newSessionHandler(&fakeSessionStore{}, nil, time.Now)
 
 	req := httptest.NewRequest(http.MethodGet, "/session", nil)
 	rec := httptest.NewRecorder()
@@ -67,7 +67,7 @@ func TestSessionHandlerCreateFailureReturnsAPIError(t *testing.T) {
 			return session.Session{}, errors.New("db unavailable")
 		},
 	}
-	handler := newSessionHandler(store, time.Now)
+	handler := newSessionHandler(store, nil, time.Now)
 
 	req := httptest.NewRequest(http.MethodPost, "/session", nil)
 	rec := httptest.NewRecorder()
@@ -86,6 +86,39 @@ func TestSessionHandlerCreateFailureReturnsAPIError(t *testing.T) {
 	}
 	if payload.Error.Message != "Internal server error" {
 		t.Fatalf("expected internal error message, got %q", payload.Error.Message)
+	}
+}
+
+func TestSessionHandlerAuthenticatedRequestReturnsConflict(t *testing.T) {
+	authenticator, token := newClerkTestAuthenticator(t, clerkTestTokenConfig{
+		authorizedParty: "http://localhost:4173",
+		issuer:          "https://issuer.test",
+		subject:         "user_123",
+	})
+
+	store := &fakeSessionStore{
+		createFn: func(context.Context, time.Time) (session.Session, error) {
+			t.Fatal("create should not be called for authenticated requests")
+			return session.Session{}, nil
+		},
+	}
+	handler := newSessionHandler(store, authenticator, time.Now)
+
+	req := httptest.NewRequest(http.MethodPost, "/session", nil)
+	req.Header.Set(authorizationHeaderName, "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected status %d, got %d", http.StatusConflict, rec.Code)
+	}
+
+	var payload APIError
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("expected valid JSON error, got: %v", err)
+	}
+	if payload.Error.Code != "AUTHENTICATED_SESSION_CREATION_FORBIDDEN" {
+		t.Fatalf("expected authenticated session conflict code, got %q", payload.Error.Code)
 	}
 }
 

@@ -26,6 +26,14 @@ type StorageConfig struct {
 	UploadThingRequestTimeoutSecs int
 }
 
+// ClerkConfig holds Clerk authentication runtime settings.
+type ClerkConfig struct {
+	Enabled           bool
+	SecretKey         string
+	AuthorizedParties []string
+	JWKSURL           string
+}
+
 // Config holds web runtime settings.
 type Config struct {
 	AppEnv              string
@@ -37,6 +45,7 @@ type Config struct {
 	BetterstackToken    string
 	BetterstackEndpoint string
 	Storage             StorageConfig
+	Clerk               ClerkConfig
 	CORSOrigins         []string
 }
 
@@ -127,6 +136,11 @@ func LoadFromEnv() (Config, error) {
 		return Config{}, err
 	}
 
+	clerkConfig, err := loadClerkConfig()
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		AppEnv:              appEnv,
 		Port:                port,
@@ -137,6 +151,7 @@ func LoadFromEnv() (Config, error) {
 		BetterstackToken:    strings.TrimSpace(os.Getenv("BETTERSTACK_SOURCE_TOKEN")),
 		BetterstackEndpoint: strings.TrimSpace(os.Getenv("BETTERSTACK_INGESTING_HOST")),
 		Storage:             storage,
+		Clerk:               clerkConfig,
 		CORSOrigins:         parseCORSOrigins(),
 	}, nil
 }
@@ -233,6 +248,36 @@ func parseCORSOrigins() []string {
 	return dedupeNonEmpty(parts)
 }
 
+func loadClerkConfig() (ClerkConfig, error) {
+	enabled := parseOptionalBool(os.Getenv("CLERK_ENABLED"))
+
+	clerkConfig := ClerkConfig{
+		Enabled:           enabled,
+		SecretKey:         strings.TrimSpace(os.Getenv("CLERK_SECRET_KEY")),
+		AuthorizedParties: dedupeNonEmpty(strings.Split(os.Getenv("CLERK_AUTHORIZED_PARTIES"), ",")),
+		JWKSURL:           strings.TrimSpace(os.Getenv("CLERK_JWKS_URL")),
+	}
+
+	if !clerkConfig.Enabled {
+		return clerkConfig, nil
+	}
+
+	if clerkConfig.SecretKey == "" {
+		return ClerkConfig{}, fmt.Errorf("CLERK_SECRET_KEY is required when CLERK_ENABLED=true")
+	}
+	if len(clerkConfig.AuthorizedParties) == 0 {
+		return ClerkConfig{}, fmt.Errorf("CLERK_AUTHORIZED_PARTIES is required when CLERK_ENABLED=true")
+	}
+	if clerkConfig.JWKSURL != "" {
+		parsed, err := url.Parse(clerkConfig.JWKSURL)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return ClerkConfig{}, fmt.Errorf("CLERK_JWKS_URL must be a valid URL")
+		}
+	}
+
+	return clerkConfig, nil
+}
+
 func defaultCORSOrigins() []string {
 	frontendPort := strings.TrimSpace(os.Getenv("FRONTEND_PORT"))
 	if frontendPort == "" {
@@ -313,6 +358,11 @@ func requiredPositiveInt(key string) (int, error) {
 	}
 
 	return parsed, nil
+}
+
+func parseOptionalBool(value string) bool {
+	trimmed := strings.TrimSpace(strings.ToLower(value))
+	return trimmed == "1" || trimmed == "true" || trimmed == "yes" || trimmed == "on"
 }
 
 func optionalPositiveInt(key string, defaultValue int) (int, error) {

@@ -25,13 +25,13 @@ func (h *pokemonPendingSpeciesHandler) ServeHTTP(w http.ResponseWriter, r *http.
 		return
 	}
 
-	sess, ok := SessionFromContext(r.Context())
+	identity, ok := IdentityFromContext(r.Context())
 	if !ok {
 		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error", nil)
 		return
 	}
 
-	readings, err := h.store.ListPendingReadingsBySession(r.Context(), sess.ID)
+	readings, err := h.store.ListPendingReadings(r.Context(), identity.OwnerKey())
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error", nil)
 		return
@@ -92,7 +92,7 @@ func (h *pokemonPendingSpeciesResolveHandler) ServeHTTP(w http.ResponseWriter, r
 		return
 	}
 
-	sess, ok := SessionFromContext(r.Context())
+	identity, ok := IdentityFromContext(r.Context())
 	if !ok {
 		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error", nil)
 		return
@@ -112,7 +112,7 @@ func (h *pokemonPendingSpeciesResolveHandler) ServeHTTP(w http.ResponseWriter, r
 	resolvedResult, err := h.store.ResolvePendingReading(r.Context(), upload.ResolvePendingReadingParams{
 		ReadingID: r.PathValue("readingId"),
 		OptionID:  optionID,
-		SessionID: sess.ID,
+		OwnerKey:  identity.OwnerKey(),
 		Now:       h.now(),
 	})
 	if err != nil {

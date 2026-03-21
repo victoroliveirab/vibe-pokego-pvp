@@ -3,7 +3,7 @@ import { getUserFacingErrorMessage } from "../../lib/api-errors";
 import { createPokemonResultsApi } from "../results/pokemon-results-api";
 import PokemonResultsPanel from "../results/PokemonResultsPanel";
 import { initialPokemonResultsState, pokemonResultsStateReducer } from "../results/pokemon-results-state";
-import { useAnonymousSession } from "../session/useAnonymousSession";
+import { useAppIdentity } from "../session/useAppIdentity";
 import { createJobApi, normalizeJobStatusError, normalizeRetryError } from "./job-api";
 import UploadForm from "./UploadForm";
 import { createUploadApi, normalizeUploadError } from "./upload-api";
@@ -11,12 +11,13 @@ import UploadStatusPanel from "./UploadStatusPanel";
 import { initialUploadState, uploadFlowPhases, uploadStateReducer } from "./upload-state";
 import { validateSelectedUploadFile } from "./upload-validation";
 
-const defaultUploadApi = createUploadApi();
-const defaultJobApi = createJobApi();
-const defaultPokemonResultsApi = createPokemonResultsApi();
-
 const terminalJobStatuses = new Set(["SUCCEEDED", "FAILED", "PENDING_USER_DEDUP"]);
 const pokemonResultsRefreshStatuses = new Set(["SUCCEEDED", "PENDING_USER_DEDUP"]);
+const initialDeleteModalState = {
+  isOpen: false,
+  resultId: "",
+  speciesName: "",
+};
 
 function isTerminalJobStatus(status) {
   return terminalJobStatuses.has(status);
@@ -55,12 +56,25 @@ function normalizePokemonResultsError(error) {
 }
 
 export default function UploadPage({
-  uploadApi = defaultUploadApi,
-  jobApi = defaultJobApi,
+  uploadApi: injectedUploadApi = null,
+  jobApi: injectedJobApi = null,
   monitorIntervalMs = 2000,
-  pokemonResultsApi = defaultPokemonResultsApi,
-  useSessionHook = useAnonymousSession,
+  pokemonResultsApi: injectedPokemonResultsApi = null,
+  useSessionHook = useAppIdentity,
 }) {
+  const identity = useSessionHook();
+  const uploadApi = useMemo(
+    () => injectedUploadApi || createUploadApi({ apiClient: identity.apiClient }),
+    [identity.apiClient, injectedUploadApi],
+  );
+  const jobApi = useMemo(
+    () => injectedJobApi || createJobApi({ apiClient: identity.apiClient }),
+    [identity.apiClient, injectedJobApi],
+  );
+  const pokemonResultsApi = useMemo(
+    () => injectedPokemonResultsApi || createPokemonResultsApi({ apiClient: identity.apiClient }),
+    [identity.apiClient, injectedPokemonResultsApi],
+  );
   const [state, dispatch] = useReducer(uploadStateReducer, initialUploadState);
   const [pokemonResultsState, dispatchPokemonResults] = useReducer(
     pokemonResultsStateReducer,
@@ -71,16 +85,33 @@ export default function UploadPage({
   const [pendingResolveError, setPendingResolveError] = useState(null);
   const [deletingResultIds, setDeletingResultIds] = useState([]);
   const [pendingDeleteError, setPendingDeleteError] = useState(null);
-  const [deleteModalState, setDeleteModalState] = useState({
-    isOpen: false,
-    resultId: "",
-    speciesName: "",
-  });
-  const { sessionId, isLoading, error: sessionError } = useSessionHook();
+  const [deleteModalState, setDeleteModalState] = useState(initialDeleteModalState);
+  const { sessionId, isLoading, error: sessionError } = identity;
   const pokemonResultsRequestIdRef = useRef(0);
   const lastSessionPokemonFetchRef = useRef("");
   const lastJobPokemonFetchKeyRef = useRef("");
   const activeJobBootstrapSessionRef = useRef("");
+  const previousIdentityModeRef = useRef(identity.mode);
+
+  useEffect(() => {
+    const previousIdentityMode = previousIdentityModeRef.current;
+
+    if (previousIdentityMode && previousIdentityMode !== identity.mode) {
+      pokemonResultsRequestIdRef.current += 1;
+      lastSessionPokemonFetchRef.current = "";
+      lastJobPokemonFetchKeyRef.current = "";
+      activeJobBootstrapSessionRef.current = "";
+      setResolvingReadingIds([]);
+      setPendingResolveError(null);
+      setDeletingResultIds([]);
+      setPendingDeleteError(null);
+      setDeleteModalState(initialDeleteModalState);
+      dispatch({ type: "reset" });
+      dispatchPokemonResults({ type: "reset" });
+    }
+
+    previousIdentityModeRef.current = identity.mode;
+  }, [identity.mode]);
 
   const refreshPokemonResults = useCallback(
     async ({ sessionId: sourceSessionId, preserveItems = true } = {}) => {
@@ -162,11 +193,7 @@ export default function UploadPage({
       setPendingResolveError(null);
       setDeletingResultIds([]);
       setPendingDeleteError(null);
-      setDeleteModalState({
-        isOpen: false,
-        resultId: "",
-        speciesName: "",
-      });
+      setDeleteModalState(initialDeleteModalState);
       dispatchPokemonResults({ type: "reset" });
       return;
     }
@@ -619,6 +646,16 @@ export default function UploadPage({
           </p>
         </header>
 
+        {identity.mode === "guest" ? (
+          <section className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-amber-50 shadow-xl shadow-slate-950/40 sm:p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em]">Guest Session</p>
+            <p className="mt-2 text-sm leading-6">
+              Guest scans can disappear at any time and will be cleared when you sign in. Sign up to keep your
+              records saved and synced across devices.
+            </p>
+          </section>
+        ) : null}
+
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-xl shadow-slate-950/60 sm:p-6">
           <div className="mb-4 flex items-center justify-between gap-3">
             <span className="rounded-full border border-cyan-400/40 bg-cyan-400/10 px-3 py-1 text-xs font-medium text-cyan-200">
@@ -644,6 +681,7 @@ export default function UploadPage({
             canRetry={canRetry}
             error={state.error}
             finishedAt={state.finishedAt}
+            identityMode={identity.mode}
             isRetrying={state.isRetrying}
             jobError={state.jobError}
             jobId={state.jobId}

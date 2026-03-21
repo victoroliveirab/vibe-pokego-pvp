@@ -123,6 +123,55 @@ WHERE id = ?;`
 	}
 }
 
+func TestUploadIntegrationCreatesQueuedJobFromClerkUploadFlow(t *testing.T) {
+	authenticator, token := newClerkTestAuthenticator(t, clerkTestTokenConfig{
+		subject: "user_upload_integration",
+	})
+	env := newUploadIntegrationEnvWithAuthenticator(t, durationProberFunc(func(context.Context, string) (float64, error) {
+		return 30, nil
+	}), authenticator)
+
+	req := newMultipartUploadClientRequest(t, env.server.URL+"/uploads", "file", "avatar.png", pngFixtureBytes())
+	req.Header.Set(authorizationHeaderName, "Bearer "+token)
+
+	resp, err := env.client.Do(req)
+	if err != nil {
+		t.Fatalf("expected upload request to succeed, got: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, resp.StatusCode)
+	}
+
+	var payload struct {
+		UploadID string `json:"uploadId"`
+		JobID    string `json:"jobId"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("expected created upload payload, got: %v", err)
+	}
+
+	db := openIntegrationDB(t, env.dbPath)
+	const expectedOwnerKey = "clerk:user_upload_integration"
+
+	var storedSessionID string
+	if err := db.QueryRow(`SELECT session_id FROM uploads WHERE id = ?;`, payload.UploadID).Scan(&storedSessionID); err != nil {
+		t.Fatalf("expected upload row to exist, got: %v", err)
+	}
+	if storedSessionID != expectedOwnerKey {
+		t.Fatalf("expected upload owner key %q, got %q", expectedOwnerKey, storedSessionID)
+	}
+
+	var jobSessionID string
+	if err := db.QueryRow(`SELECT session_id FROM jobs WHERE id = ?;`, payload.JobID).Scan(&jobSessionID); err != nil {
+		t.Fatalf("expected job row to exist, got: %v", err)
+	}
+	if jobSessionID != expectedOwnerKey {
+		t.Fatalf("expected job owner key %q, got %q", expectedOwnerKey, jobSessionID)
+	}
+}
+
 func TestUploadIntegrationValidationFailuresReturnContractErrors(t *testing.T) {
 	testCases := []struct {
 		name           string
@@ -220,6 +269,14 @@ type uploadIntegrationEnv struct {
 }
 
 func newUploadIntegrationEnv(t *testing.T, prober upload.DurationProber) uploadIntegrationEnv {
+	return newUploadIntegrationEnvWithAuthenticator(t, prober, nil)
+}
+
+func newUploadIntegrationEnvWithAuthenticator(
+	t *testing.T,
+	prober upload.DurationProber,
+	authenticator *clerkAuthenticator,
+) uploadIntegrationEnv {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "upload-integration.db")
@@ -247,8 +304,11 @@ func newUploadIntegrationEnv(t *testing.T, prober upload.DurationProber) uploadI
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/session", newSessionHandler(sessionStore, time.Now))
-	mux.Handle("/uploads", withSessionValidation(sessionStore, time.Now, newUploadHandler(uploadStore, mediaStorage, prober, time.Now)))
+	mux.Handle("/session", newSessionHandler(sessionStore, authenticator, time.Now))
+	mux.Handle(
+		"/uploads",
+		withSessionValidation(sessionStore, authenticator, time.Now, newUploadHandler(uploadStore, mediaStorage, prober, time.Now)),
+	)
 
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)

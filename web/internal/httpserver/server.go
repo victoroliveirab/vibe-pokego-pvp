@@ -29,6 +29,11 @@ func New(cfg config.Config, storage config.StorageConfig) (*http.Server, error) 
 		return nil, fmt.Errorf("initialize session store: %w", err)
 	}
 
+	authenticator, err := newClerkAuthenticator(cfg.Clerk)
+	if err != nil {
+		return nil, fmt.Errorf("initialize clerk authenticator: %w", err)
+	}
+
 	mediaStorage, err := newMediaStorageForMode(storage)
 	if err != nil {
 		return nil, fmt.Errorf("initialize upload media storage: %w", err)
@@ -59,17 +64,17 @@ func New(cfg config.Config, storage config.StorageConfig) (*http.Server, error) 
 			"storage_mode": storage.Mode,
 		})
 	})
-	mux.Handle("/session", newSessionHandler(sessionStore, time.Now))
-	mux.Handle("/uploads", withSessionValidation(sessionStore, time.Now, uploadsHandler))
-	mux.Handle("/jobs/active", withSessionValidation(sessionStore, time.Now, activeJobHandler))
-	mux.Handle("/jobs/{jobId}", withSessionValidation(sessionStore, time.Now, jobsHandler))
-	mux.Handle("/jobs/{jobId}/retry", withSessionValidation(sessionStore, time.Now, retryHandler))
-	mux.Handle("/pokemon", withSessionValidation(sessionStore, time.Now, pokemonHandler))
-	mux.Handle("/pokemon/{resultId}", withSessionValidation(sessionStore, time.Now, deletePokemonHandler))
-	mux.Handle("/pokemon/pending-species", withSessionValidation(sessionStore, time.Now, pendingSpeciesHandler))
+	mux.Handle("/session", newSessionHandler(sessionStore, authenticator, time.Now))
+	mux.Handle("/uploads", withSessionValidation(sessionStore, authenticator, time.Now, uploadsHandler))
+	mux.Handle("/jobs/active", withSessionValidation(sessionStore, authenticator, time.Now, activeJobHandler))
+	mux.Handle("/jobs/{jobId}", withSessionValidation(sessionStore, authenticator, time.Now, jobsHandler))
+	mux.Handle("/jobs/{jobId}/retry", withSessionValidation(sessionStore, authenticator, time.Now, retryHandler))
+	mux.Handle("/pokemon", withSessionValidation(sessionStore, authenticator, time.Now, pokemonHandler))
+	mux.Handle("/pokemon/{resultId}", withSessionValidation(sessionStore, authenticator, time.Now, deletePokemonHandler))
+	mux.Handle("/pokemon/pending-species", withSessionValidation(sessionStore, authenticator, time.Now, pendingSpeciesHandler))
 	mux.Handle(
 		"/pokemon/pending-species/{readingId}",
-		withSessionValidation(sessionStore, time.Now, pendingSpeciesResolveHandler),
+		withSessionValidation(sessionStore, authenticator, time.Now, pendingSpeciesResolveHandler),
 	)
 
 	protectedMux := http.NewServeMux()
@@ -79,18 +84,26 @@ func New(cfg config.Config, storage config.StorageConfig) (*http.Server, error) 
 			return
 		}
 
-		sess, ok := SessionFromContext(r.Context())
+		identity, ok := IdentityFromContext(r.Context())
 		if !ok {
 			writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error", nil)
 			return
 		}
 
-		writeJSON(w, http.StatusOK, map[string]string{
-			"status":    "ok",
-			"sessionId": sess.ID,
-		})
+		payload := map[string]string{
+			"status": "ok",
+			"mode":   string(identity.Mode),
+		}
+		if identity.SessionID != "" {
+			payload["sessionId"] = identity.SessionID
+		}
+		if identity.ClerkUserID != "" {
+			payload["clerkUserId"] = identity.ClerkUserID
+		}
+
+		writeJSON(w, http.StatusOK, payload)
 	})
-	mux.Handle("/protected/", withSessionValidation(sessionStore, time.Now, protectedMux))
+	mux.Handle("/protected/", withSessionValidation(sessionStore, authenticator, time.Now, protectedMux))
 
 	handler := withRequestLogging(withCORS(cfg.CORSOrigins, mux))
 

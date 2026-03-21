@@ -34,6 +34,7 @@ import { APIClientError, parseAPIError } from "./api-errors";
  * @property {string} [method="GET"]
  * @property {HeadersInit} [headers]
  * @property {BodyInit|null} [body]
+ * @property {boolean} [requiresIdentity=false]
  * @property {boolean} [requiresSession=false]
  * @property {string} [sessionId=""]
  */
@@ -50,6 +51,8 @@ import { APIClientError, parseAPIError } from "./api-errors";
  * @property {string} [baseUrl]
  * @property {typeof fetch} [fetchFn]
  * @property {SessionStorageAdapter} [sessionStorage]
+ * @property {"guest"|"clerk"} [identityMode="guest"]
+ * @property {function(): Promise<string>} [authTokenProvider]
  */
 
 /**
@@ -217,6 +220,8 @@ export async function createSession(baseUrl = defaultBaseUrl, { fetchFn = fetch 
 export function createApiClient({
   baseUrl = defaultBaseUrl,
   fetchFn = fetch,
+  identityMode = "guest",
+  authTokenProvider,
   sessionStorage = {
     get: getStoredSessionId,
     set: setStoredSessionId,
@@ -260,12 +265,45 @@ export function createApiClient({
    */
   async function request(
     path,
-    { method = "GET", headers, body, requiresSession = false, sessionId: preferredSessionId = "" } = {},
+    {
+      method = "GET",
+      headers,
+      body,
+      requiresIdentity = false,
+      requiresSession = false,
+      sessionId: preferredSessionId = "",
+    } = {},
   ) {
-    async function doRequest(sessionId) {
+    const needsIdentity = requiresIdentity || requiresSession;
+
+    async function resolveIdentityHeader() {
+      if (!needsIdentity) {
+        return { mode: "", value: "" };
+      }
+
+      if (identityMode === "clerk") {
+        const token = typeof authTokenProvider === "function" ? String((await authTokenProvider()) || "").trim() : "";
+        if (!token) {
+          throw new APIClientError({
+            code: "AUTH_TOKEN_UNAVAILABLE",
+            message: "Authenticated request could not get a Clerk token.",
+          });
+        }
+
+        return { mode: "clerk", value: token };
+      }
+
+      const sessionId = preferredSessionId || (await bootstrapSession());
+      return { mode: "guest", value: sessionId };
+    }
+
+    async function doRequest(identityHeader) {
       const requestHeaders = createDefaultHeaders(headers);
-      if (requiresSession && sessionId) {
-        requestHeaders.set("X-Session-Id", sessionId);
+      if (identityHeader.mode === "guest" && identityHeader.value) {
+        requestHeaders.set("X-Session-Id", identityHeader.value);
+      }
+      if (identityHeader.mode === "clerk" && identityHeader.value) {
+        requestHeaders.set("Authorization", `Bearer ${identityHeader.value}`);
       }
 
       const response = await fetchFn(resolveUrl(baseUrl, path), {
@@ -281,18 +319,15 @@ export function createApiClient({
       return parseSuccessResponse(response);
     }
 
-    let sessionId = "";
-    if (requiresSession) {
-      sessionId = preferredSessionId || (await bootstrapSession());
-    }
+    const identityHeader = await resolveIdentityHeader();
 
     try {
-      return await doRequest(sessionId);
+      return await doRequest(identityHeader);
     } catch (error) {
-      if (requiresSession && error instanceof APIClientError && error.code === "INVALID_SESSION") {
+      if (identityHeader.mode === "guest" && error instanceof APIClientError && error.code === "INVALID_SESSION") {
         sessionStorage.clear();
-        const refreshedSessionId = await bootstrapSession();
-        return doRequest(refreshedSessionId);
+        const refreshedIdentityHeader = await resolveIdentityHeader();
+        return doRequest(refreshedIdentityHeader);
       }
       throw error;
     }

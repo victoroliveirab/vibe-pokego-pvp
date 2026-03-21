@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/upload"
 )
 
 func TestPokemonResultsIntegrationReturnsSessionScopedResultsInDeterministicOrder(t *testing.T) {
@@ -279,6 +281,64 @@ func TestPokemonResultsIntegrationDeduplicatesDuplicateImportsAndKeepsDeletedGro
 	}
 	if len(afterDeletePayload.Results) != 0 {
 		t.Fatalf("expected deleted duplicate group to stay hidden, got %#v", afterDeletePayload.Results)
+	}
+}
+
+func TestPokemonResultsIntegrationReturnsClerkScopedResultsForAuthorizedRequests(t *testing.T) {
+	authenticator, token := newClerkTestAuthenticator(t, clerkTestTokenConfig{
+		subject: "user_results_integration",
+	})
+	env := newJobStatusIntegrationEnvWithAuthenticator(t, authenticator)
+	created := createUploadAndJobViaAuthorization(t, env, token)
+	ownerKey := upload.OwnerKeyForClerkUser("user_results_integration")
+
+	createdAt := time.Date(2026, time.March, 5, 20, 0, 0, 0, time.UTC)
+	insertIntegrationAppraisalResultRow(t, env.dbPath, integrationAppraisalResultRow{
+		ID:                  "result-clerk",
+		JobID:               created.JobID,
+		UploadID:            created.UploadID,
+		SessionID:           ownerKey,
+		SpeciesName:         "Squirtle",
+		CP:                  501,
+		HP:                  70,
+		PowerUpStardustCost: 3000,
+		IVAttack:            11,
+		IVDefense:           14,
+		IVStamina:           13,
+		LevelMethod:         "UNKNOWN",
+		SourceType:          "IMAGE",
+		CreatedAt:           createdAt,
+	})
+
+	req, err := http.NewRequest(http.MethodGet, env.server.URL+"/pokemon", nil)
+	if err != nil {
+		t.Fatalf("expected request creation to succeed, got: %v", err)
+	}
+	req.Header.Set(authorizationHeaderName, "Bearer "+token)
+
+	resp, err := env.client.Do(req)
+	if err != nil {
+		t.Fatalf("expected request to succeed, got: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+
+	var payload pokemonResultsEnvelopeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("expected pokemon results payload, got: %v", err)
+	}
+
+	if len(payload.Results) != 1 {
+		t.Fatalf("expected 1 result for clerk owner, got %d", len(payload.Results))
+	}
+	if payload.Results[0].ID != "result-clerk" {
+		t.Fatalf("expected result id %q, got %q", "result-clerk", payload.Results[0].ID)
+	}
+	if payload.Results[0].SpeciesName != "Squirtle" {
+		t.Fatalf("expected species %q, got %q", "Squirtle", payload.Results[0].SpeciesName)
 	}
 }
 

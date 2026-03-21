@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/session"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/upload"
 )
 
@@ -34,12 +33,12 @@ func TestJobRetryHandlerReturnsCreatedPayload(t *testing.T) {
 
 	now := time.Date(2026, time.March, 5, 11, 20, 0, 0, time.UTC)
 	store := &fakeJobRetryHandlerStore{
-		createRetryFn: func(_ context.Context, gotParentJobID, gotSessionID string, gotNow time.Time) (upload.RetryJob, error) {
+		createRetryFn: func(_ context.Context, gotParentJobID, gotOwnerKey string, gotNow time.Time) (upload.RetryJob, error) {
 			if gotParentJobID != parentJobID {
 				t.Fatalf("expected parent job id %q, got %q", parentJobID, gotParentJobID)
 			}
-			if gotSessionID != sessionID {
-				t.Fatalf("expected session id %q, got %q", sessionID, gotSessionID)
+			if gotOwnerKey != sessionID {
+				t.Fatalf("expected owner key %q, got %q", sessionID, gotOwnerKey)
 			}
 			if !gotNow.Equal(now) {
 				t.Fatalf("expected now %s, got %s", now, gotNow)
@@ -214,7 +213,7 @@ func TestJobRetryHandlerReturnsInternalErrorWhenStoreFails(t *testing.T) {
 }
 
 type fakeJobRetryHandlerStore struct {
-	createRetryFn func(ctx context.Context, parentJobID string, sessionID string, now time.Time) (upload.RetryJob, error)
+	createRetryFn func(ctx context.Context, parentJobID string, ownerKey string, now time.Time) (upload.RetryJob, error)
 }
 
 func (s *fakeJobRetryHandlerStore) CreateUploadAndQueuedJob(context.Context, upload.CreateParams) (upload.Upload, upload.Job, error) {
@@ -224,11 +223,11 @@ func (s *fakeJobRetryHandlerStore) CreateUploadAndQueuedJob(context.Context, upl
 func (s *fakeJobRetryHandlerStore) CreateRetryJob(
 	ctx context.Context,
 	parentJobID string,
-	sessionID string,
+	ownerKey string,
 	now time.Time,
 ) (upload.RetryJob, error) {
 	if s.createRetryFn != nil {
-		return s.createRetryFn(ctx, parentJobID, sessionID, now)
+		return s.createRetryFn(ctx, parentJobID, ownerKey, now)
 	}
 
 	return upload.RetryJob{}, nil
@@ -242,11 +241,11 @@ func (s *fakeJobRetryHandlerStore) GetActiveJobStatus(context.Context, string) (
 	return upload.JobStatusRecord{}, upload.ErrJobNotFound
 }
 
-func (s *fakeJobRetryHandlerStore) ListPokemonResultsBySession(context.Context, string) ([]upload.PokemonResultRecord, error) {
+func (s *fakeJobRetryHandlerStore) ListPokemonResults(context.Context, string) ([]upload.PokemonResultRecord, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (s *fakeJobRetryHandlerStore) ListPendingReadingsBySession(
+func (s *fakeJobRetryHandlerStore) ListPendingReadings(
 	context.Context,
 	string,
 ) ([]upload.PendingSpeciesReadingRecord, error) {
@@ -267,6 +266,5 @@ func (s *fakeJobRetryHandlerStore) ResolvePendingReading(
 func newJobRetryHandlerRequest(method string, path string, jobID string, sessionID string) *http.Request {
 	req := httptest.NewRequest(method, path, nil)
 	req.SetPathValue("jobId", jobID)
-	ctx := context.WithValue(req.Context(), sessionContextKey{}, session.Session{ID: sessionID})
-	return req.WithContext(ctx)
+	return withTestGuestIdentity(req, sessionID)
 }

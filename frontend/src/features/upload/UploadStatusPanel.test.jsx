@@ -159,4 +159,18 @@ describe("upload status panel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry upload" }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
+
+  it("describes temporary guest session bootstrap while preparing upload access", () => {
+    render(
+      <UploadStatusPanel
+        {...createPanelProps({
+          identityMode: "guest",
+          phase: uploadFlowPhases.SESSION_LOADING,
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Preparing session")).toBeTruthy();
+    expect(screen.getByText("Creating a temporary guest session so your upload can be processed.")).toBeTruthy();
+  });
 });

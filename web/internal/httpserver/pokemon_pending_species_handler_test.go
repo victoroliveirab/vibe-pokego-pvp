@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/session"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/upload"
 )
 
@@ -36,9 +35,9 @@ func TestPokemonPendingSpeciesHandlerReturnsMappedPayload(t *testing.T) {
 	frameTimestamp := int64(300)
 	confidence := 0.86
 	handler := newPokemonPendingSpeciesHandler(&fakePokemonPendingSpeciesStore{
-		listPendingFn: func(_ context.Context, gotSessionID string) ([]upload.PendingSpeciesReadingRecord, error) {
-			if gotSessionID != "session-1" {
-				t.Fatalf("expected session id %q, got %q", "session-1", gotSessionID)
+		listPendingFn: func(_ context.Context, gotOwnerKey string) ([]upload.PendingSpeciesReadingRecord, error) {
+			if gotOwnerKey != "session-1" {
+				t.Fatalf("expected owner key %q, got %q", "session-1", gotOwnerKey)
 			}
 
 			return []upload.PendingSpeciesReadingRecord{
@@ -212,7 +211,7 @@ func TestPokemonPendingSpeciesResolveHandlerMapsDomainErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			handler := newPokemonPendingSpeciesResolveHandler(&fakePokemonPendingSpeciesStore{
 				resolvePendingFn: func(_ context.Context, params upload.ResolvePendingReadingParams) (upload.PokemonResultRecord, error) {
-					if params.ReadingID != "reading-1" || params.OptionID != "option-1" || params.SessionID != "session-1" {
+					if params.ReadingID != "reading-1" || params.OptionID != "option-1" || params.OwnerKey != "session-1" {
 						t.Fatalf("unexpected resolve params: %#v", params)
 					}
 					if !params.Now.Equal(now) {
@@ -254,7 +253,7 @@ func TestPokemonPendingSpeciesResolveHandlerReturnsMappedResolvedResult(t *testi
 	confidence := 0.91
 	handler := newPokemonPendingSpeciesResolveHandler(&fakePokemonPendingSpeciesStore{
 		resolvePendingFn: func(_ context.Context, params upload.ResolvePendingReadingParams) (upload.PokemonResultRecord, error) {
-			if params.ReadingID != "reading-1" || params.OptionID != "option-1" || params.SessionID != "session-1" {
+			if params.ReadingID != "reading-1" || params.OptionID != "option-1" || params.OwnerKey != "session-1" {
 				t.Fatalf("unexpected resolve params: %#v", params)
 			}
 
@@ -339,7 +338,7 @@ func TestPokemonPendingSpeciesResolveHandlerReturnsInternalErrorWhenStoreFails(t
 }
 
 type fakePokemonPendingSpeciesStore struct {
-	listPendingFn    func(ctx context.Context, sessionID string) ([]upload.PendingSpeciesReadingRecord, error)
+	listPendingFn    func(ctx context.Context, ownerKey string) ([]upload.PendingSpeciesReadingRecord, error)
 	resolvePendingFn func(ctx context.Context, params upload.ResolvePendingReadingParams) (upload.PokemonResultRecord, error)
 }
 
@@ -359,16 +358,16 @@ func (s *fakePokemonPendingSpeciesStore) GetActiveJobStatus(context.Context, str
 	return upload.JobStatusRecord{}, upload.ErrJobNotFound
 }
 
-func (s *fakePokemonPendingSpeciesStore) ListPokemonResultsBySession(context.Context, string) ([]upload.PokemonResultRecord, error) {
+func (s *fakePokemonPendingSpeciesStore) ListPokemonResults(context.Context, string) ([]upload.PokemonResultRecord, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (s *fakePokemonPendingSpeciesStore) ListPendingReadingsBySession(
+func (s *fakePokemonPendingSpeciesStore) ListPendingReadings(
 	ctx context.Context,
-	sessionID string,
+	ownerKey string,
 ) ([]upload.PendingSpeciesReadingRecord, error) {
 	if s.listPendingFn != nil {
-		return s.listPendingFn(ctx, sessionID)
+		return s.listPendingFn(ctx, ownerKey)
 	}
 	return nil, nil
 }
@@ -389,8 +388,7 @@ func (s *fakePokemonPendingSpeciesStore) ResolvePendingReading(
 
 func newPokemonPendingSpeciesHandlerRequest(method string, path string, sessionID string) *http.Request {
 	req := httptest.NewRequest(method, path, nil)
-	ctx := context.WithValue(req.Context(), sessionContextKey{}, session.Session{ID: sessionID})
-	return req.WithContext(ctx)
+	return withTestGuestIdentity(req, sessionID)
 }
 
 func newPokemonPendingSpeciesResolveHandlerRequest(
@@ -402,6 +400,5 @@ func newPokemonPendingSpeciesResolveHandlerRequest(
 ) *http.Request {
 	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
 	req.SetPathValue("readingId", readingID)
-	ctx := context.WithValue(req.Context(), sessionContextKey{}, session.Session{ID: sessionID})
-	return req.WithContext(ctx)
+	return withTestGuestIdentity(req, sessionID)
 }

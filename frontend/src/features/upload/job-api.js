@@ -17,7 +17,7 @@ const defaultApiClient = createApiClient();
 
 /**
  * @typedef {object} JobApiClient
- * @property {function(string, { method?: string, headers?: HeadersInit, body?: BodyInit|null, requiresSession?: boolean, sessionId?: string }=): Promise<JsonValue|null>} request
+ * @property {function(string, { method?: string, headers?: HeadersInit, body?: BodyInit|null, requiresIdentity?: boolean, sessionId?: string }=): Promise<JsonValue|null>} request
  */
 
 /**
@@ -304,7 +304,7 @@ export function createJobApi({ apiClient = defaultApiClient } = {}) {
     async getActiveJob({ sessionId = "" } = {}) {
       const payload = await apiClient.request("/jobs/active", {
         method: "GET",
-        requiresSession: true,
+        requiresIdentity: true,
         sessionId,
       });
 
@@ -337,7 +337,7 @@ export function createJobApi({ apiClient = defaultApiClient } = {}) {
       const normalizedJobId = normalizeRequiredString(jobId, "jobId", { jobId });
       const payload = await apiClient.request(`/jobs/${encodeURIComponent(normalizedJobId)}`, {
         method: "GET",
-        requiresSession: true,
+        requiresIdentity: true,
         sessionId,
       });
 
@@ -355,7 +355,7 @@ export function createJobApi({ apiClient = defaultApiClient } = {}) {
       const normalizedJobId = normalizeRequiredString(jobId, "jobId", { jobId });
       const payload = await apiClient.request(`/jobs/${encodeURIComponent(normalizedJobId)}/retry`, {
         method: "POST",
-        requiresSession: true,
+        requiresIdentity: true,
         sessionId,
       });
 

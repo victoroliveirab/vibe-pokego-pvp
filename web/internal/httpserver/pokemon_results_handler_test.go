@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/session"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/upload"
 )
 
@@ -44,9 +43,9 @@ func TestPokemonResultsHandlerReturnsMappedPayloadForVideoAndImageResults(t *tes
 	createdAtImage := createdAtVideo.Add(time.Second)
 
 	store := &fakePokemonResultsHandlerStore{
-		listFn: func(_ context.Context, gotSessionID string) ([]upload.PokemonResultRecord, error) {
-			if gotSessionID != sessionID {
-				t.Fatalf("expected session id %q, got %q", sessionID, gotSessionID)
+		listFn: func(_ context.Context, gotOwnerKey string) ([]upload.PokemonResultRecord, error) {
+			if gotOwnerKey != sessionID {
+				t.Fatalf("expected owner key %q, got %q", sessionID, gotOwnerKey)
 			}
 
 			return []upload.PokemonResultRecord{
@@ -297,7 +296,7 @@ func TestPokemonResultsHandlerReturnsInternalErrorWhenStoreFails(t *testing.T) {
 }
 
 type fakePokemonResultsHandlerStore struct {
-	listFn func(ctx context.Context, sessionID string) ([]upload.PokemonResultRecord, error)
+	listFn func(ctx context.Context, ownerKey string) ([]upload.PokemonResultRecord, error)
 }
 
 func (s *fakePokemonResultsHandlerStore) CreateUploadAndQueuedJob(context.Context, upload.CreateParams) (upload.Upload, upload.Job, error) {
@@ -316,18 +315,18 @@ func (s *fakePokemonResultsHandlerStore) GetActiveJobStatus(context.Context, str
 	return upload.JobStatusRecord{}, upload.ErrJobNotFound
 }
 
-func (s *fakePokemonResultsHandlerStore) ListPokemonResultsBySession(
+func (s *fakePokemonResultsHandlerStore) ListPokemonResults(
 	ctx context.Context,
-	sessionID string,
+	ownerKey string,
 ) ([]upload.PokemonResultRecord, error) {
 	if s.listFn != nil {
-		return s.listFn(ctx, sessionID)
+		return s.listFn(ctx, ownerKey)
 	}
 
 	return nil, nil
 }
 
-func (s *fakePokemonResultsHandlerStore) ListPendingReadingsBySession(
+func (s *fakePokemonResultsHandlerStore) ListPendingReadings(
 	context.Context,
 	string,
 ) ([]upload.PendingSpeciesReadingRecord, error) {
@@ -347,6 +346,5 @@ func (s *fakePokemonResultsHandlerStore) ResolvePendingReading(
 
 func newPokemonResultsHandlerRequest(method string, path string, sessionID string) *http.Request {
 	req := httptest.NewRequest(method, path, nil)
-	ctx := context.WithValue(req.Context(), sessionContextKey{}, session.Session{ID: sessionID})
-	return req.WithContext(ctx)
+	return withTestGuestIdentity(req, sessionID)
 }

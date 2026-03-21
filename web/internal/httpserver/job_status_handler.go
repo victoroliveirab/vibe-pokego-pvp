@@ -23,13 +23,13 @@ func (h *jobStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, ok := SessionFromContext(r.Context())
+	identity, ok := IdentityFromContext(r.Context())
 	if !ok {
 		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error", nil)
 		return
 	}
 
-	record, err := h.store.GetJobStatus(r.Context(), r.PathValue("jobId"), sess.ID)
+	record, err := h.store.GetJobStatus(r.Context(), r.PathValue("jobId"), identity.OwnerKey())
 	if err != nil {
 		if errors.Is(err, upload.ErrJobNotFound) {
 			writeAPIError(w, http.StatusNotFound, "JOB_NOT_FOUND", "Job not found", nil)

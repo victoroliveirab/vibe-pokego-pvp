@@ -14,7 +14,7 @@ import (
 
 func TestSessionMiddlewareMissingHeaderReturnsInvalidSession(t *testing.T) {
 	store := newMiddlewareTestStore(t)
-	handler := withSessionValidation(store, time.Now, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := withSessionValidation(store, nil, time.Now, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("next handler should not be called for missing header")
 	}))
 
@@ -27,7 +27,7 @@ func TestSessionMiddlewareMissingHeaderReturnsInvalidSession(t *testing.T) {
 
 func TestSessionMiddlewareMalformedHeaderReturnsInvalidSession(t *testing.T) {
 	store := newMiddlewareTestStore(t)
-	handler := withSessionValidation(store, time.Now, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := withSessionValidation(store, nil, time.Now, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("next handler should not be called for malformed header")
 	}))
 
@@ -41,7 +41,7 @@ func TestSessionMiddlewareMalformedHeaderReturnsInvalidSession(t *testing.T) {
 
 func TestSessionMiddlewareUnknownSessionReturnsInvalidSession(t *testing.T) {
 	store := newMiddlewareTestStore(t)
-	handler := withSessionValidation(store, time.Now, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := withSessionValidation(store, nil, time.Now, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("next handler should not be called for unknown session")
 	}))
 
@@ -65,11 +65,18 @@ func TestSessionMiddlewareValidSessionCallsNextAndTouchesTimestamp(t *testing.T)
 
 	touchedAt := createdAt.Add(5 * time.Minute)
 	nextCalled := false
-	handler := withSessionValidation(store, func() time.Time { return touchedAt }, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := withSessionValidation(store, nil, func() time.Time { return touchedAt }, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		nextCalled = true
 		ctxSession, ok := SessionFromContext(r.Context())
 		if !ok {
 			t.Fatal("expected session in context")
+		}
+		identity, ok := IdentityFromContext(r.Context())
+		if !ok {
+			t.Fatal("expected identity in context")
+		}
+		if identity.Mode != IdentityModeGuest {
+			t.Fatalf("expected guest identity mode, got %q", identity.Mode)
 		}
 		if ctxSession.ID != sess.ID {
 			t.Fatalf("expected context session id %q, got %q", sess.ID, ctxSession.ID)
@@ -129,5 +136,113 @@ func assertInvalidSessionResponse(t *testing.T, rec *httptest.ResponseRecorder, 
 	}
 	if payload.Error.Message != "Missing or invalid X-Session-Id" {
 		t.Fatalf("%s: expected invalid session message, got %q", scenario, payload.Error.Message)
+	}
+}
+
+func TestSessionMiddlewareValidClerkAuthorizationCallsNext(t *testing.T) {
+	authenticator, token := newClerkTestAuthenticator(t, clerkTestTokenConfig{
+		authorizedParty: "http://localhost:4173",
+		issuer:          "https://issuer.test",
+		subject:         "user_123",
+	})
+
+	handler := withSessionValidation(newMiddlewareTestStore(t), authenticator, time.Now, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		identity, ok := IdentityFromContext(r.Context())
+		if !ok {
+			t.Fatal("expected identity in context")
+		}
+		if identity.Mode != IdentityModeClerk {
+			t.Fatalf("expected clerk identity mode, got %q", identity.Mode)
+		}
+		if identity.ClerkUserID != "user_123" {
+			t.Fatalf("expected clerk user id user_123, got %q", identity.ClerkUserID)
+		}
+		if identity.OwnerKey() != "clerk:user_123" {
+			t.Fatalf("expected owner key clerk:user_123, got %q", identity.OwnerKey())
+		}
+
+		sess, ok := SessionFromContext(r.Context())
+		if !ok {
+			t.Fatal("expected synthetic session in context")
+		}
+		if sess.ID != "clerk:user_123" {
+			t.Fatalf("expected synthetic session id clerk:user_123, got %q", sess.ID)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/protected/ping", nil)
+	req.Header.Set(authorizationHeaderName, "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, rec.Code)
+	}
+}
+
+func TestSessionMiddlewareAuthorizationTakesPrecedenceOverSessionHeader(t *testing.T) {
+	authenticator, token := newClerkTestAuthenticator(t, clerkTestTokenConfig{
+		authorizedParty: "http://localhost:4173",
+		issuer:          "https://issuer.test",
+		subject:         "user_123",
+	})
+
+	handler := withSessionValidation(newMiddlewareTestStore(t), authenticator, time.Now, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		identity, ok := IdentityFromContext(r.Context())
+		if !ok {
+			t.Fatal("expected identity in context")
+		}
+		if identity.Mode != IdentityModeClerk {
+			t.Fatalf("expected clerk identity mode, got %q", identity.Mode)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/protected/ping", nil)
+	req.Header.Set(authorizationHeaderName, "Bearer "+token)
+	req.Header.Set(sessionHeaderName, "not-a-uuid")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, rec.Code)
+	}
+}
+
+func TestSessionMiddlewareInvalidAuthorizationReturnsUnauthorizedEvenWithValidSession(t *testing.T) {
+	store := newMiddlewareTestStore(t)
+	sess, err := store.Create(context.Background(), time.Now().UTC())
+	if err != nil {
+		t.Fatalf("expected session create, got: %v", err)
+	}
+
+	authenticator, _ := newClerkTestAuthenticator(t, clerkTestTokenConfig{
+		authorizedParty: "http://localhost:4173",
+		issuer:          "https://issuer.test",
+		subject:         "user_123",
+	})
+
+	handler := withSessionValidation(store, authenticator, time.Now, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("next handler should not be called for invalid auth")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/protected/ping", nil)
+	req.Header.Set(authorizationHeaderName, "Bearer invalid-token")
+	req.Header.Set(sessionHeaderName, sess.ID)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, rec.Code)
+	}
+
+	var payload APIError
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("expected valid JSON error, got: %v", err)
+	}
+	if payload.Error.Code != "INVALID_AUTHORIZATION" {
+		t.Fatalf("expected INVALID_AUTHORIZATION code, got %q", payload.Error.Code)
 	}
 }

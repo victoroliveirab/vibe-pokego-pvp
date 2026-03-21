@@ -17,7 +17,7 @@ const defaultApiClient = createApiClient();
 
 /**
  * @typedef {object} UploadApiClient
- * @property {function(string, { method?: string, headers?: HeadersInit, body?: BodyInit|null, requiresSession?: boolean, sessionId?: string }=): Promise<JsonValue|null>} request
+ * @property {function(string, { method?: string, headers?: HeadersInit, body?: BodyInit|null, requiresIdentity?: boolean, sessionId?: string }=): Promise<JsonValue|null>} request
  */
 
 /**
@@ -138,7 +138,7 @@ export function createUploadApi({ apiClient = defaultApiClient } = {}) {
       const payload = await apiClient.request("/uploads", {
         method: "POST",
         body: formData,
-        requiresSession: true,
+        requiresIdentity: true,
         sessionId,
       });
 

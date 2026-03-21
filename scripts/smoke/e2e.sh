@@ -122,6 +122,8 @@ if is_remote_database_url; then
   fail "e2e smoke suite requires local file-backed DATABASE_PATH. Remote DATABASE_URL detected: ${DATABASE_URL}"
 fi
 
+echo "Running deterministic guest-session smoke coverage. Clerk-authenticated browser flows remain manual/test-mocked."
+
 wait_for_idle_queue() {
   if ! command -v sqlite3 >/dev/null 2>&1; then
     echo "sqlite3 not found; skipping queue-idle preflight check."

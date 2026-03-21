@@ -23,13 +23,13 @@ func (h *activeJobStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	sess, ok := SessionFromContext(r.Context())
+	identity, ok := IdentityFromContext(r.Context())
 	if !ok {
 		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error", nil)
 		return
 	}
 
-	record, err := h.store.GetActiveJobStatus(r.Context(), sess.ID)
+	record, err := h.store.GetActiveJobStatus(r.Context(), identity.OwnerKey())
 	if err != nil {
 		if errors.Is(err, upload.ErrJobNotFound) {
 			writeJSON(w, http.StatusOK, map[string]any{

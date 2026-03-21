@@ -22,13 +22,13 @@ func (h *pokemonResultsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	sess, ok := SessionFromContext(r.Context())
+	identity, ok := IdentityFromContext(r.Context())
 	if !ok {
 		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error", nil)
 		return
 	}
 
-	results, err := h.store.ListPokemonResultsBySession(r.Context(), sess.ID)
+	results, err := h.store.ListPokemonResults(r.Context(), identity.OwnerKey())
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error", nil)
 		return

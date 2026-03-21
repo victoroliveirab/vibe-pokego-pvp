@@ -12,6 +12,19 @@ This document defines runtime environment variables used by the local stack and 
 - `UPLOAD_STORAGE_MODE`: `local` or `uploadthing`.
 - `UPLOADTHING_TOKEN`: required when `UPLOAD_STORAGE_MODE=uploadthing`.
 
+## Clerk Variable Matrix
+
+### `CLERK_ENABLED=false`
+
+- Clerk settings are optional and ignored by the web API.
+
+### `CLERK_ENABLED=true`
+
+- `CLERK_SECRET_KEY` is required.
+- `CLERK_AUTHORIZED_PARTIES` is required and should contain the frontend origins allowed to mint bearer tokens.
+- `CLERK_JWKS_URL` is optional and, when set, must be a valid URL.
+- `VITE_CLERK_PUBLISHABLE_KEY` is required by the frontend runtime even though it is consumed outside the Go service.
+
 ## Database Variable Matrix
 
 ### Local mode (`APP_ENV=local`)
@@ -76,6 +89,12 @@ This document defines runtime environment variables used by the local stack and 
   - `UPLOAD_LOCAL_DIR is required when UPLOAD_STORAGE_MODE=local`
 - Missing uploadthing token in uploadthing mode:
   - `UPLOADTHING_TOKEN is required when UPLOAD_STORAGE_MODE=uploadthing`
+- Missing Clerk secret key when enabled:
+  - `CLERK_SECRET_KEY is required when CLERK_ENABLED=true`
+- Missing Clerk authorized parties when enabled:
+  - `CLERK_AUTHORIZED_PARTIES is required when CLERK_ENABLED=true`
+- Invalid Clerk JWKS URL:
+  - `CLERK_JWKS_URL must be a valid URL`
 - Invalid uploadthing timeout:
   - `UPLOADTHING_REQUEST_TIMEOUT_SECS must be a positive integer`
 - Invalid worker uploadthing retry count:
@@ -88,6 +107,22 @@ This document defines runtime environment variables used by the local stack and 
 ## Local Workflow
 
 1. Copy `.env.example` to `.env`.
-2. Keep `APP_ENV=local` and `DATABASE_URL` unset to use local `DATABASE_PATH` fallback.
-3. Keep `UPLOAD_STORAGE_MODE=local` for local tests unless explicitly validating UploadThing mode.
-4. Start services with `make up`; startup fails fast when required variables are missing or invalid.
+2. Set real Clerk development keys in `VITE_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`, then keep `CLERK_ENABLED=true` if you want local auth behavior to match production.
+3. Keep `CLERK_AUTHORIZED_PARTIES` aligned with the frontend origins you use locally.
+4. Keep `APP_ENV=local` and `DATABASE_URL` unset to use local `DATABASE_PATH` fallback.
+5. Keep `UPLOAD_STORAGE_MODE=local` for local tests unless explicitly validating UploadThing mode.
+6. Start services with `make up`; startup fails fast when required variables are missing or invalid.
+
+## Auth Mode Behavior
+
+- Guest mode uses `POST /session` plus `X-Session-Id`.
+- Clerk mode uses `Authorization: Bearer <session token>` on the same protected endpoints.
+- Guest records are intentionally temporary.
+- Signing in clears the locally stored guest session and resets guest-bound UI state before authenticated data reloads.
+- Authenticated records are stored by Clerk owner key and are intended to persist across devices.
+
+## Smoke Coverage
+
+- `scripts/smoke/verify_stack.sh` and `scripts/smoke/e2e.sh` validate the deterministic guest flow.
+- Authenticated Clerk smoke is not automated in this repository because it would depend on live browser session token acquisition and would be brittle in CI/local shells.
+- Clerk behavior is instead covered by mocked unit/integration tests plus manual browser verification.

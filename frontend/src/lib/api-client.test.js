@@ -70,7 +70,7 @@ describe("api client", () => {
 
     await apiClient.request("/protected/ping", {
       method: "GET",
-      requiresSession: true,
+      requiresIdentity: true,
     });
 
     const requestConfig = fetchFn.mock.calls[0][1];
@@ -114,7 +114,7 @@ describe("api client", () => {
 
     const response = await apiClient.request("/uploads", {
       method: "POST",
-      requiresSession: true,
+      requiresIdentity: true,
     });
 
     expect(response).toEqual({ uploadId: "upload-1", jobId: "job-1" });
@@ -152,7 +152,7 @@ describe("api client", () => {
     await expect(
       apiClient.request("/uploads", {
         method: "POST",
-        requiresSession: true,
+        requiresIdentity: true,
       }),
     ).rejects.toMatchObject({
       code: "UNSUPPORTED_MEDIA_TYPE",
@@ -208,11 +208,11 @@ describe("api client", () => {
 
     const firstRequest = apiClient.request("/protected/ping", {
       method: "GET",
-      requiresSession: true,
+      requiresIdentity: true,
     });
     const secondRequest = apiClient.request("/protected/ping", {
       method: "GET",
-      requiresSession: true,
+      requiresIdentity: true,
     });
 
     resolveSessionResponse(jsonResponse(201, { sessionId: "session-1" }));
@@ -222,5 +222,44 @@ describe("api client", () => {
     const sessionCalls = fetchFn.mock.calls.filter(([url]) => url.endsWith("/session"));
     expect(sessionCalls).toHaveLength(1);
     expect(sessionStorage.set).toHaveBeenCalledWith("session-1");
+  });
+
+  it("uses Clerk bearer authorization for protected requests in clerk mode", async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true }));
+
+    const apiClient = createApiClient({
+      baseUrl: "http://localhost:8080",
+      fetchFn,
+      identityMode: "clerk",
+      authTokenProvider: vi.fn().mockResolvedValue("clerk-token"),
+    });
+
+    await apiClient.request("/pokemon", {
+      method: "GET",
+      requiresIdentity: true,
+      sessionId: "clerk:user_123",
+    });
+
+    const requestConfig = fetchFn.mock.calls[0][1];
+    expect(requestConfig.headers.get("Authorization")).toBe("Bearer clerk-token");
+    expect(requestConfig.headers.get("X-Session-Id")).toBeNull();
+  });
+
+  it("fails protected clerk requests when the auth token is unavailable", async () => {
+    const apiClient = createApiClient({
+      baseUrl: "http://localhost:8080",
+      fetchFn: vi.fn(),
+      identityMode: "clerk",
+      authTokenProvider: vi.fn().mockResolvedValue(""),
+    });
+
+    await expect(
+      apiClient.request("/pokemon", {
+        method: "GET",
+        requiresIdentity: true,
+      }),
+    ).rejects.toMatchObject({
+      code: "AUTH_TOKEN_UNAVAILABLE",
+    });
   });
 });
