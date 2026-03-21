@@ -117,6 +117,11 @@ jobs:
           set -euo pipefail
           cd "${DEPLOY_PATH}"
           test -f .env.production
+          dump_compose_diagnostics() {
+            docker compose -f docker-compose.prod.yml --env-file .env.production ps || true
+            docker compose -f docker-compose.prod.yml --env-file .env.production logs --no-color --tail=200 web worker frontend || true
+          }
+          trap 'dump_compose_diagnostics' ERR
           ensure_env_var() {
             key="$1"
             value="$2"
@@ -129,6 +134,77 @@ jobs:
           ensure_env_var "BETTERSTACK_SOURCE_TOKEN" "${BETTERSTACK_SOURCE_TOKEN}"
           ensure_env_var "BETTERSTACK_INGESTING_HOST" "${BETTERSTACK_INGESTING_HOST}"
           rm -f .env.production.bak
+
+          set -a
+          # shellcheck disable=SC1091
+          source .env.production
+          set +a
+
+          require_nonempty() {
+            key="$1"
+            value="${!key:-}"
+            if [ -z "${value}" ]; then
+              echo "Missing required .env.production value: ${key}" >&2
+              exit 1
+            fi
+          }
+
+          is_positive_int() {
+            case "$1" in
+              ''|*[!0-9]*|0) return 1 ;;
+              *) return 0 ;;
+            esac
+          }
+
+          is_remote_database_url() {
+            case "${1:-}" in
+              libsql://*|http://*|https://*|ws://*|wss://*)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          require_nonempty APP_ENV
+          require_nonempty WEB_PORT
+          require_nonempty WORKER_POLL_INTERVAL_SECS
+          require_nonempty WORKER_HEALTH_PORT
+          require_nonempty WORKER_GAMEMASTER_PATH
+          require_nonempty UPLOAD_STORAGE_MODE
+
+          is_positive_int "${WEB_PORT}" || { echo "WEB_PORT must be a positive integer" >&2; exit 1; }
+          is_positive_int "${WORKER_POLL_INTERVAL_SECS}" || { echo "WORKER_POLL_INTERVAL_SECS must be a positive integer" >&2; exit 1; }
+          is_positive_int "${WORKER_HEALTH_PORT}" || { echo "WORKER_HEALTH_PORT must be a positive integer" >&2; exit 1; }
+
+          if [ "${APP_ENV}" != "local" ] && [ -z "${DATABASE_URL:-}" ]; then
+            echo "DATABASE_URL is required when APP_ENV is not local" >&2
+            exit 1
+          fi
+
+          if is_remote_database_url "${DATABASE_URL:-}"; then
+            require_nonempty DATABASE_AUTH_TOKEN
+          fi
+
+          case "${UPLOAD_STORAGE_MODE}" in
+            local)
+              require_nonempty UPLOAD_LOCAL_DIR
+              ;;
+            uploadthing)
+              require_nonempty UPLOADTHING_TOKEN
+              ;;
+            *)
+              echo "UPLOAD_STORAGE_MODE must be one of: local, uploadthing" >&2
+              exit 1
+              ;;
+          esac
+
+          if [ "${CLERK_ENABLED:-false}" = "true" ]; then
+            require_nonempty CLERK_SECRET_KEY
+            require_nonempty CLERK_AUTHORIZED_PARTIES
+          fi
+
           docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
           ENV_FILE=.env.production \
           COMPOSE_CMD='docker compose -f docker-compose.prod.yml --env-file .env.production' \

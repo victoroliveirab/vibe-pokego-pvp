@@ -39,6 +39,8 @@ fail() {
   echo "ERROR: $1" >&2
   echo "Current compose status:" >&2
   ${COMPOSE_CMD} ps >&2 || true
+  echo "Recent compose logs:" >&2
+  ${COMPOSE_CMD} logs --no-color --tail=200 web worker frontend >&2 || true
   exit 1
 }
 
