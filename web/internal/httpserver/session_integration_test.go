@@ -98,6 +98,9 @@ func TestSessionLifecycleIntegration(t *testing.T) {
 	if protectedPayload["status"] != "ok" {
 		t.Fatalf("expected protected status ok, got %#v", protectedPayload)
 	}
+	if protectedPayload["mode"] != string(IdentityModeGuest) {
+		t.Fatalf("expected protected mode %q, got %q", IdentityModeGuest, protectedPayload["mode"])
+	}
 	if protectedPayload["sessionId"] != createPayload.SessionID {
 		t.Fatalf("expected protected response sessionId %q, got %q", createPayload.SessionID, protectedPayload["sessionId"])
 	}

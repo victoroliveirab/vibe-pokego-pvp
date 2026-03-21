@@ -46,7 +46,7 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, ok := SessionFromContext(r.Context())
+	identity, ok := IdentityFromContext(r.Context())
 	if !ok {
 		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error", nil)
 		return
@@ -83,7 +83,7 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	createdUpload, createdJob, err := h.store.CreateUploadAndQueuedJob(r.Context(), upload.CreateParams{
-		SessionID:   sess.ID,
+		OwnerKey:    identity.OwnerKey(),
 		Kind:        validated.Kind,
 		MediaURL:    stored.MediaURL,
 		ContentType: validated.ContentType,

@@ -28,7 +28,7 @@ func (h *pokemonDeleteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	sess, ok := SessionFromContext(r.Context())
+	identity, ok := IdentityFromContext(r.Context())
 	if !ok {
 		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error", nil)
 		return
@@ -40,7 +40,7 @@ func (h *pokemonDeleteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	err := h.store.SoftDeletePokemonResult(r.Context(), resultID, sess.ID, h.now())
+	err := h.store.SoftDeletePokemonResult(r.Context(), resultID, identity.OwnerKey(), h.now())
 	if err != nil {
 		if errors.Is(err, upload.ErrPokemonResultNotFound) {
 			writeAPIError(w, http.StatusNotFound, "RESULT_NOT_FOUND", "Pokemon result not found", nil)

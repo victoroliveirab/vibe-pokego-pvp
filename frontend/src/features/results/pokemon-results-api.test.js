@@ -155,7 +155,7 @@ describe("pokemon results api", () => {
       "/pokemon",
       expect.objectContaining({
         method: "GET",
-        requiresSession: true,
+        requiresIdentity: true,
         sessionId: "session-1",
       }),
     );
@@ -280,7 +280,7 @@ describe("pokemon results api", () => {
       "/pokemon/pending-species",
       expect.objectContaining({
         method: "GET",
-        requiresSession: true,
+        requiresIdentity: true,
         sessionId: "session-1",
       }),
     );
@@ -335,7 +335,7 @@ describe("pokemon results api", () => {
       "/pokemon/pending-species/reading-1",
       expect.objectContaining({
         method: "PATCH",
-        requiresSession: true,
+        requiresIdentity: true,
         sessionId: "session-1",
       }),
     );
@@ -356,7 +356,7 @@ describe("pokemon results api", () => {
       "/pokemon/result-1",
       expect.objectContaining({
         method: "DELETE",
-        requiresSession: true,
+        requiresIdentity: true,
         sessionId: "session-1",
       }),
     );

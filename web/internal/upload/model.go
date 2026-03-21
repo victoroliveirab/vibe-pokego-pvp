@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -150,8 +151,18 @@ type PendingSpeciesReadingRecord struct {
 type ResolvePendingReadingParams struct {
 	ReadingID string
 	OptionID  string
-	SessionID string
+	OwnerKey  string
 	Now       time.Time
+}
+
+// OwnerKeyForGuest returns the persisted owner key for an anonymous session.
+func OwnerKeyForGuest(sessionID string) string {
+	return strings.TrimSpace(sessionID)
+}
+
+// OwnerKeyForClerkUser returns the persisted owner key for a Clerk user.
+func OwnerKeyForClerkUser(userID string) string {
+	return "clerk:" + strings.TrimSpace(userID)
 }
 
 // NewUploadID creates a UUID v4 identifier for uploads.

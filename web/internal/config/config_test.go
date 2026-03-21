@@ -92,6 +92,87 @@ func TestLoadFromEnvUsesExplicitRemoteDatabaseURL(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvLoadsClerkConfigWhenEnabled(t *testing.T) {
+	setValidWebEnv(t, filepath.Join(t.TempDir(), "uploads"))
+	t.Setenv("CLERK_ENABLED", "true")
+	t.Setenv("CLERK_SECRET_KEY", "sk_test_123")
+	t.Setenv("CLERK_AUTHORIZED_PARTIES", " http://localhost:4173,https://app.example.com ")
+	t.Setenv("CLERK_JWKS_URL", "https://clerk.example.com/.well-known/jwks.json")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("expected config to load, got: %v", err)
+	}
+
+	if !cfg.Clerk.Enabled {
+		t.Fatal("expected clerk auth to be enabled")
+	}
+	if cfg.Clerk.SecretKey != "sk_test_123" {
+		t.Fatalf("expected clerk secret key to load, got %q", cfg.Clerk.SecretKey)
+	}
+	if cfg.Clerk.JWKSURL != "https://clerk.example.com/.well-known/jwks.json" {
+		t.Fatalf("expected clerk jwks url to load, got %q", cfg.Clerk.JWKSURL)
+	}
+	expectedParties := []string{"http://localhost:4173", "https://app.example.com"}
+	if len(cfg.Clerk.AuthorizedParties) != len(expectedParties) {
+		t.Fatalf("expected %d clerk authorized parties, got %d (%v)", len(expectedParties), len(cfg.Clerk.AuthorizedParties), cfg.Clerk.AuthorizedParties)
+	}
+	for idx, expected := range expectedParties {
+		if cfg.Clerk.AuthorizedParties[idx] != expected {
+			t.Fatalf("expected clerk authorized party %q at index %d, got %q", expected, idx, cfg.Clerk.AuthorizedParties[idx])
+		}
+	}
+}
+
+func TestLoadFromEnvRejectsEnabledClerkWithoutSecretKey(t *testing.T) {
+	setValidWebEnv(t, filepath.Join(t.TempDir(), "uploads"))
+	t.Setenv("CLERK_ENABLED", "true")
+	t.Setenv("CLERK_SECRET_KEY", "")
+	t.Setenv("CLERK_AUTHORIZED_PARTIES", "http://localhost:4173")
+
+	_, err := LoadFromEnv()
+	if err == nil {
+		t.Fatal("expected error when clerk is enabled without CLERK_SECRET_KEY")
+	}
+
+	if !strings.Contains(err.Error(), "CLERK_SECRET_KEY is required when CLERK_ENABLED=true") {
+		t.Fatalf("expected actionable clerk secret key error, got: %v", err)
+	}
+}
+
+func TestLoadFromEnvRejectsEnabledClerkWithoutAuthorizedParties(t *testing.T) {
+	setValidWebEnv(t, filepath.Join(t.TempDir(), "uploads"))
+	t.Setenv("CLERK_ENABLED", "true")
+	t.Setenv("CLERK_SECRET_KEY", "sk_test_123")
+	t.Setenv("CLERK_AUTHORIZED_PARTIES", "")
+
+	_, err := LoadFromEnv()
+	if err == nil {
+		t.Fatal("expected error when clerk is enabled without CLERK_AUTHORIZED_PARTIES")
+	}
+
+	if !strings.Contains(err.Error(), "CLERK_AUTHORIZED_PARTIES is required when CLERK_ENABLED=true") {
+		t.Fatalf("expected actionable clerk authorized parties error, got: %v", err)
+	}
+}
+
+func TestLoadFromEnvRejectsInvalidClerkJWKSURL(t *testing.T) {
+	setValidWebEnv(t, filepath.Join(t.TempDir(), "uploads"))
+	t.Setenv("CLERK_ENABLED", "true")
+	t.Setenv("CLERK_SECRET_KEY", "sk_test_123")
+	t.Setenv("CLERK_AUTHORIZED_PARTIES", "http://localhost:4173")
+	t.Setenv("CLERK_JWKS_URL", "://bad-url")
+
+	_, err := LoadFromEnv()
+	if err == nil {
+		t.Fatal("expected error for invalid CLERK_JWKS_URL")
+	}
+
+	if !strings.Contains(err.Error(), "CLERK_JWKS_URL must be a valid URL") {
+		t.Fatalf("expected actionable clerk jwks url error, got: %v", err)
+	}
+}
+
 func TestLoadFromEnvRejectsNonLocalEnvWithoutDatabaseURL(t *testing.T) {
 	setValidWebEnv(t, filepath.Join(t.TempDir(), "unused"))
 	t.Setenv("APP_ENV", "staging")
@@ -435,4 +516,8 @@ func setValidWebEnv(t *testing.T, uploadDir string) {
 	t.Setenv("UPLOADTHING_REQUEST_TIMEOUT_SECS", "")
 	t.Setenv("BETTERSTACK_SOURCE_TOKEN", "")
 	t.Setenv("BETTERSTACK_INGESTING_HOST", "")
+	t.Setenv("CLERK_ENABLED", "")
+	t.Setenv("CLERK_SECRET_KEY", "")
+	t.Setenv("CLERK_AUTHORIZED_PARTIES", "")
+	t.Setenv("CLERK_JWKS_URL", "")
 }

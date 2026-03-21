@@ -27,13 +27,13 @@ func (h *jobRetryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, ok := SessionFromContext(r.Context())
+	identity, ok := IdentityFromContext(r.Context())
 	if !ok {
 		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error", nil)
 		return
 	}
 
-	retryJob, err := h.store.CreateRetryJob(r.Context(), r.PathValue("jobId"), sess.ID, h.now())
+	retryJob, err := h.store.CreateRetryJob(r.Context(), r.PathValue("jobId"), identity.OwnerKey(), h.now())
 	if err != nil {
 		if errors.Is(err, upload.ErrJobNotFound) {
 			writeAPIError(w, http.StatusNotFound, "JOB_NOT_FOUND", "Job not found", nil)

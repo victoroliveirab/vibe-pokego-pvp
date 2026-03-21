@@ -6,7 +6,33 @@ function createSessionHook() {
     sessionId: "session-1",
     isLoading: false,
     error: null,
+    mode: "guest",
+    isSignedIn: false,
+    apiClient: null,
   });
+}
+
+function createClerkIdentityHook() {
+  return () => ({
+    sessionId: "clerk:user_123",
+    isLoading: false,
+    error: null,
+    mode: "clerk",
+    isSignedIn: true,
+    user: { id: "user_123" },
+    apiClient: null,
+  });
+}
+
+function createMutableIdentityHook(initialIdentity) {
+  let currentIdentity = initialIdentity;
+
+  const useSessionHook = () => currentIdentity;
+  useSessionHook.setIdentity = (nextIdentity) => {
+    currentIdentity = nextIdentity;
+  };
+
+  return useSessionHook;
 }
 
 function createPokemonResultsApi(payloads = [[]]) {
@@ -413,5 +439,116 @@ describe("all pokemon page", () => {
       expect(screen.getByRole("dialog")).toBeTruthy();
       expect(screen.getByText("Delete failed.")).toBeTruthy();
     });
+  });
+
+  it("loads results for signed-in identity mode", async () => {
+    const pokemonResultsApi = createPokemonResultsApi([
+      createResult({
+        id: "result-1",
+        speciesName: "Bulbasaur",
+        maxCpEvaluations: [
+          {
+            maxCp: 1500,
+            evaluatedSpeciesId: "bulba-great",
+            bestLevel: 20,
+            bestCp: 1490,
+            statProduct: 2,
+            rank: 25,
+            percentage: 83.0,
+          },
+        ],
+      }),
+    ]);
+
+    render(<AllPokemonPage pokemonResultsApi={pokemonResultsApi} useSessionHook={createClerkIdentityHook()} />);
+
+    await waitFor(() => {
+      expect(pokemonResultsApi.getPokemonResults).toHaveBeenCalledWith({
+        sessionId: "clerk:user_123",
+      });
+      expect(screen.getByText("Bulbasaur")).toBeTruthy();
+    });
+  });
+
+  it("clears guest-only view state when identity switches to a signed-in user", async () => {
+    const useSessionHook = createMutableIdentityHook({
+      sessionId: "session-1",
+      isLoading: false,
+      error: null,
+      mode: "guest",
+      isSignedIn: false,
+      apiClient: null,
+    });
+    const bulbasaur = createResult({
+      id: "guest-1",
+      speciesName: "Bulbasaur",
+      maxCpEvaluations: [
+        {
+          maxCp: 1500,
+          evaluatedSpeciesId: "bulba-great",
+          bestLevel: 20,
+          bestCp: 1490,
+          statProduct: 2,
+          rank: 25,
+          percentage: 83.0,
+        },
+      ],
+    });
+    const horsea = createResult({
+      id: "clerk-1",
+      speciesName: "Horsea",
+      maxCpEvaluations: [
+        {
+          maxCp: 1500,
+          evaluatedSpeciesId: "horsea-great",
+          bestLevel: 20,
+          bestCp: 1495,
+          statProduct: 2.5,
+          rank: 12,
+          percentage: 91.4,
+        },
+      ],
+    });
+    const pokemonResultsApi = {
+      getPokemonResults: vi.fn().mockImplementation(async ({ sessionId }) => ({
+        results: sessionId === "clerk:user_123" ? [horsea] : [bulbasaur],
+      })),
+      deletePokemonResult: vi.fn().mockResolvedValue(null),
+    };
+
+    const { rerender } = render(<AllPokemonPage pokemonResultsApi={pokemonResultsApi} useSessionHook={useSessionHook} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Guest scans can disappear at any time and will be cleared when you sign in. Sign up to keep scans saved and synced across devices.")).toBeTruthy();
+      expect(screen.getByText("Bulbasaur")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Bulbasaur" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toBeTruthy();
+    });
+
+    useSessionHook.setIdentity({
+      sessionId: "clerk:user_123",
+      isLoading: false,
+      error: null,
+      mode: "clerk",
+      isSignedIn: true,
+      user: { id: "user_123" },
+      apiClient: null,
+    });
+    rerender(<AllPokemonPage pokemonResultsApi={pokemonResultsApi} useSessionHook={useSessionHook} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Horsea")).toBeTruthy();
+    });
+
+    expect(screen.queryByText("Bulbasaur")).toBeNull();
+    expect(
+      screen.queryByText(
+        "Guest scans can disappear at any time and will be cleared when you sign in. Sign up to keep scans saved and synced across devices.",
+      ),
+    ).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

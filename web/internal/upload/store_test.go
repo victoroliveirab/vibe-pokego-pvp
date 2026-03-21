@@ -111,7 +111,7 @@ func TestCreateUploadAndQueuedJobCreatesBothRowsWithQueuedDefaults(t *testing.T)
 	now := time.Date(2026, time.March, 1, 20, 15, 0, 0, time.UTC)
 
 	createdUpload, createdJob, err := store.CreateUploadAndQueuedJob(ctx, CreateParams{
-		SessionID:   "12f9f169-d9ca-4ea3-91e0-18356a1e1477",
+		OwnerKey:    "12f9f169-d9ca-4ea3-91e0-18356a1e1477",
 		Kind:        KindImage,
 		MediaURL:    "local://uploads/example.png",
 		ContentType: "image/png",
@@ -209,7 +209,7 @@ func TestCreateUploadAndQueuedJobRollsBackWhenJobInsertFails(t *testing.T) {
 	_, _, err := store.CreateUploadAndQueuedJob(ctx, CreateParams{
 		UploadID:    "9ec17f15-9807-44a5-a6de-183f0bce7136",
 		JobID:       duplicateJobID,
-		SessionID:   "12f9f169-d9ca-4ea3-91e0-18356a1e1477",
+		OwnerKey:    "12f9f169-d9ca-4ea3-91e0-18356a1e1477",
 		Kind:        KindVideo,
 		MediaURL:    "local://uploads/a.mp4",
 		ContentType: "video/mp4",
@@ -224,7 +224,7 @@ func TestCreateUploadAndQueuedJobRollsBackWhenJobInsertFails(t *testing.T) {
 	_, _, err = store.CreateUploadAndQueuedJob(ctx, CreateParams{
 		UploadID:    secondUploadID,
 		JobID:       duplicateJobID,
-		SessionID:   "12f9f169-d9ca-4ea3-91e0-18356a1e1477",
+		OwnerKey:    "12f9f169-d9ca-4ea3-91e0-18356a1e1477",
 		Kind:        KindVideo,
 		MediaURL:    "local://uploads/b.mp4",
 		ContentType: "video/mp4",
@@ -247,7 +247,7 @@ func TestCreateRetryJobCreatesQueuedChildWithParentLinkage(t *testing.T) {
 	createdUpload, parentJob, err := store.CreateUploadAndQueuedJob(ctx, CreateParams{
 		UploadID:    "upload-parent",
 		JobID:       "job-parent",
-		SessionID:   "session-a",
+		OwnerKey:    "session-a",
 		Kind:        KindImage,
 		MediaURL:    "local://uploads/parent.png",
 		ContentType: "image/png",
@@ -446,7 +446,7 @@ func TestCreateRetryJobReturnsNotAllowedForOwnedNonFailedParent(t *testing.T) {
 	_, _, err := store.CreateUploadAndQueuedJob(ctx, CreateParams{
 		UploadID:    "upload-parent",
 		JobID:       "job-parent",
-		SessionID:   "session-a",
+		OwnerKey:    "session-a",
 		Kind:        KindImage,
 		MediaURL:    "local://uploads/parent.png",
 		ContentType: "image/png",
@@ -471,7 +471,7 @@ func TestCreateRetryJobReturnsNotFoundForSessionMismatch(t *testing.T) {
 	_, _, err := store.CreateUploadAndQueuedJob(ctx, CreateParams{
 		UploadID:    "upload-parent",
 		JobID:       "job-parent",
-		SessionID:   "session-a",
+		OwnerKey:    "session-a",
 		Kind:        KindImage,
 		MediaURL:    "local://uploads/parent.png",
 		ContentType: "image/png",
@@ -681,7 +681,7 @@ func TestGetJobStatusReturnsNotFoundForUnknownJob(t *testing.T) {
 	}
 }
 
-func TestListPokemonResultsBySessionReturnsSessionScopedDeterministicRowsAndNullables(t *testing.T) {
+func TestListPokemonResultsReturnsSessionScopedDeterministicRowsAndNullables(t *testing.T) {
 	store, _ := newTestSQLiteStore(t)
 	ctx := context.Background()
 
@@ -859,7 +859,7 @@ func TestListPokemonResultsBySessionReturnsSessionScopedDeterministicRowsAndNull
 		CreatedAt:          laterCreatedAt,
 	})
 
-	results, err := store.ListPokemonResultsBySession(ctx, sessionA)
+	results, err := store.ListPokemonResults(ctx, sessionA)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -972,7 +972,7 @@ func TestListPokemonResultsBySessionReturnsSessionScopedDeterministicRowsAndNull
 		assertPokemonResultRecordEqual(t, idx, expected[idx], results[idx])
 	}
 
-	repeatedResults, err := store.ListPokemonResultsBySession(ctx, sessionA)
+	repeatedResults, err := store.ListPokemonResults(ctx, sessionA)
 	if err != nil {
 		t.Fatalf("expected second read to succeed, got %v", err)
 	}
@@ -984,10 +984,10 @@ func TestListPokemonResultsBySessionReturnsSessionScopedDeterministicRowsAndNull
 	}
 }
 
-func TestListPokemonResultsBySessionReturnsEmptyForUnknownSession(t *testing.T) {
+func TestListPokemonResultsReturnsEmptyForUnknownSession(t *testing.T) {
 	store, _ := newTestSQLiteStore(t)
 
-	results, err := store.ListPokemonResultsBySession(context.Background(), "missing-session")
+	results, err := store.ListPokemonResults(context.Background(), "missing-session")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -996,7 +996,7 @@ func TestListPokemonResultsBySessionReturnsEmptyForUnknownSession(t *testing.T) 
 	}
 }
 
-func TestListPokemonResultsBySessionKeepsLatestDuplicatePerDedupeKey(t *testing.T) {
+func TestListPokemonResultsKeepsLatestDuplicatePerDedupeKey(t *testing.T) {
 	store, _ := newTestSQLiteStore(t)
 	ctx := context.Background()
 	sessionID := "session-a"
@@ -1084,7 +1084,7 @@ func TestListPokemonResultsBySessionKeepsLatestDuplicatePerDedupeKey(t *testing.
 		CreatedAt:          laterCreatedAt,
 	})
 
-	results, err := store.ListPokemonResultsBySession(ctx, sessionID)
+	results, err := store.ListPokemonResults(ctx, sessionID)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -1103,7 +1103,7 @@ func TestListPokemonResultsBySessionKeepsLatestDuplicatePerDedupeKey(t *testing.
 	}
 }
 
-func TestListPokemonResultsBySessionKeepsDistinctLevelEstimates(t *testing.T) {
+func TestListPokemonResultsKeepsDistinctLevelEstimates(t *testing.T) {
 	store, _ := newTestSQLiteStore(t)
 	ctx := context.Background()
 	sessionID := "session-a"
@@ -1192,7 +1192,7 @@ func TestListPokemonResultsBySessionKeepsDistinctLevelEstimates(t *testing.T) {
 		CreatedAt:   thirdCreatedAt,
 	})
 
-	results, err := store.ListPokemonResultsBySession(ctx, sessionID)
+	results, err := store.ListPokemonResults(ctx, sessionID)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -1294,7 +1294,7 @@ func TestSoftDeletePokemonResultMarksDeletedAndExcludesItFromResults(t *testing.
 		t.Fatalf("expected deleted_at %q, got %#v", deleteAt.UTC().Format(time.RFC3339Nano), deletedAtRaw)
 	}
 
-	results, err := store.ListPokemonResultsBySession(ctx, sessionID)
+	results, err := store.ListPokemonResults(ctx, sessionID)
 	if err != nil {
 		t.Fatalf("expected list pokemon results to succeed, got %v", err)
 	}
@@ -1368,7 +1368,7 @@ func TestSoftDeletePokemonResultTombstonesDuplicateGroup(t *testing.T) {
 		CreatedAt:     laterCreatedAt,
 	})
 
-	results, err := store.ListPokemonResultsBySession(ctx, sessionID)
+	results, err := store.ListPokemonResults(ctx, sessionID)
 	if err != nil {
 		t.Fatalf("expected list pokemon results to succeed, got %v", err)
 	}
@@ -1410,7 +1410,7 @@ func TestSoftDeletePokemonResultTombstonesDuplicateGroup(t *testing.T) {
 		t.Fatalf("expected tombstone source result %q, got %q", "result-newer", tombstoneSourceID)
 	}
 
-	results, err = store.ListPokemonResultsBySession(ctx, sessionID)
+	results, err = store.ListPokemonResults(ctx, sessionID)
 	if err != nil {
 		t.Fatalf("expected list pokemon results after delete to succeed, got %v", err)
 	}
@@ -1465,7 +1465,7 @@ func TestSoftDeletePokemonResultReturnsNotFoundForUnknownSessionOrDeletedRow(t *
 	}
 }
 
-func TestListPendingReadingsBySessionReturnsSessionScopedReadingsWithRankedOptions(t *testing.T) {
+func TestListPendingReadingsReturnsSessionScopedReadingsWithRankedOptions(t *testing.T) {
 	store, _ := newTestSQLiteStore(t)
 	ctx := context.Background()
 
@@ -1595,7 +1595,7 @@ func TestListPendingReadingsBySessionReturnsSessionScopedReadingsWithRankedOptio
 		CreatedAt:        createdAt,
 	})
 
-	readings, err := store.ListPendingReadingsBySession(ctx, sessionA)
+	readings, err := store.ListPendingReadings(ctx, sessionA)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -1678,7 +1678,7 @@ func TestResolvePendingReadingFinalizesResultAndLocksReading(t *testing.T) {
 	result, err := store.ResolvePendingReading(ctx, ResolvePendingReadingParams{
 		ReadingID: "reading-a",
 		OptionID:  "option-a2",
-		SessionID: sessionID,
+		OwnerKey:  sessionID,
 		Now:       now.Add(time.Minute),
 	})
 	if err != nil {
@@ -1778,7 +1778,7 @@ func TestResolvePendingReadingReturnsLockedForAlreadyResolvedReading(t *testing.
 	_, err := store.ResolvePendingReading(ctx, ResolvePendingReadingParams{
 		ReadingID: "reading-a",
 		OptionID:  "option-a1",
-		SessionID: sessionID,
+		OwnerKey:  sessionID,
 		Now:       now.Add(time.Minute),
 	})
 	if !errors.Is(err, ErrPendingReadingLocked) {
@@ -1826,7 +1826,7 @@ func TestResolvePendingReadingReturnsNotFoundErrors(t *testing.T) {
 	_, err := store.ResolvePendingReading(ctx, ResolvePendingReadingParams{
 		ReadingID: "reading-missing",
 		OptionID:  "option-a1",
-		SessionID: sessionID,
+		OwnerKey:  sessionID,
 		Now:       now,
 	})
 	if !errors.Is(err, ErrPendingReadingNotFound) {
@@ -1836,11 +1836,193 @@ func TestResolvePendingReadingReturnsNotFoundErrors(t *testing.T) {
 	_, err = store.ResolvePendingReading(ctx, ResolvePendingReadingParams{
 		ReadingID: "reading-a",
 		OptionID:  "option-missing",
-		SessionID: sessionID,
+		OwnerKey:  sessionID,
 		Now:       now,
 	})
 	if !errors.Is(err, ErrPendingOptionNotFound) {
 		t.Fatalf("expected ErrPendingOptionNotFound, got %v", err)
+	}
+}
+
+func TestCreateUploadAndGetActiveJobStatusSupportClerkOwnerKey(t *testing.T) {
+	store, _ := newTestSQLiteStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.March, 7, 9, 0, 0, 0, time.UTC)
+	ownerKey := OwnerKeyForClerkUser("user_create")
+
+	createdUpload, createdJob, err := store.CreateUploadAndQueuedJob(ctx, CreateParams{
+		OwnerKey:    ownerKey,
+		Kind:        KindImage,
+		MediaURL:    "local://uploads/clerk-image.png",
+		ContentType: "image/png",
+		ByteSize:    2048,
+		Now:         now,
+	})
+	if err != nil {
+		t.Fatalf("expected create upload/job to succeed, got %v", err)
+	}
+	if createdUpload.SessionID != ownerKey {
+		t.Fatalf("expected created upload owner key %q, got %q", ownerKey, createdUpload.SessionID)
+	}
+	if createdJob.SessionID != ownerKey {
+		t.Fatalf("expected created job owner key %q, got %q", ownerKey, createdJob.SessionID)
+	}
+
+	activeJob, err := store.GetActiveJobStatus(ctx, ownerKey)
+	if err != nil {
+		t.Fatalf("expected active job lookup to succeed, got %v", err)
+	}
+	if activeJob.ID != createdJob.ID {
+		t.Fatalf("expected active job id %q, got %q", createdJob.ID, activeJob.ID)
+	}
+	if activeJob.SessionID != ownerKey {
+		t.Fatalf("expected active job owner key %q, got %q", ownerKey, activeJob.SessionID)
+	}
+
+	if _, err := store.GetActiveJobStatus(ctx, OwnerKeyForGuest("session-guest")); !errors.Is(err, ErrJobNotFound) {
+		t.Fatalf("expected guest owner lookup to miss clerk job, got %v", err)
+	}
+}
+
+func TestRetryListAndDeleteSupportClerkOwnerKey(t *testing.T) {
+	store, _ := newTestSQLiteStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.March, 7, 10, 0, 0, 0, time.UTC)
+	ownerKey := OwnerKeyForClerkUser("user_results")
+
+	seedUploadRow(t, store.db, "upload-clerk", ownerKey, now)
+	seedJobRow(t, store.db, seededJobRow{
+		ID:        "job-clerk-parent",
+		UploadID:  "upload-clerk",
+		SessionID: ownerKey,
+		Status:    JobStatusFailed,
+		Progress:  100,
+		CreatedAt: now,
+		UpdatedAt: now,
+		FinishedAt: func() *time.Time {
+			finished := now
+			return &finished
+		}(),
+	})
+	seedAppraisalResultRow(t, store.db, seededAppraisalResultRow{
+		ID:                  "result-clerk",
+		JobID:               "job-clerk-parent",
+		UploadID:            "upload-clerk",
+		SessionID:           ownerKey,
+		SpeciesName:         "Machop",
+		CP:                  512,
+		HP:                  64,
+		PowerUpStardustCost: 2500,
+		IVAttack:            12,
+		IVDefense:           13,
+		IVStamina:           14,
+		LevelMethod:         "UNKNOWN",
+		SourceType:          "IMAGE",
+		CreatedAt:           now,
+	})
+
+	retryJob, err := store.CreateRetryJob(ctx, "job-clerk-parent", ownerKey, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("expected retry job creation to succeed, got %v", err)
+	}
+	if retryJob.SessionID != ownerKey {
+		t.Fatalf("expected retry job owner key %q, got %q", ownerKey, retryJob.SessionID)
+	}
+
+	results, err := store.ListPokemonResults(ctx, ownerKey)
+	if err != nil {
+		t.Fatalf("expected list pokemon results to succeed, got %v", err)
+	}
+	if len(results) != 1 || results[0].ID != "result-clerk" {
+		t.Fatalf("expected one clerk-owned result, got %#v", results)
+	}
+
+	if err := store.SoftDeletePokemonResult(ctx, "result-clerk", ownerKey, now.Add(2*time.Minute)); err != nil {
+		t.Fatalf("expected soft delete to succeed, got %v", err)
+	}
+
+	results, err = store.ListPokemonResults(ctx, ownerKey)
+	if err != nil {
+		t.Fatalf("expected list pokemon results after delete to succeed, got %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("expected deleted clerk-owned result to be hidden, got %#v", results)
+	}
+
+	if _, err := store.CreateRetryJob(ctx, "job-clerk-parent", OwnerKeyForClerkUser("user_other"), now.Add(3*time.Minute)); !errors.Is(err, ErrJobNotFound) {
+		t.Fatalf("expected clerk owner isolation on retry, got %v", err)
+	}
+}
+
+func TestResolvePendingReadingSupportsClerkOwnerKey(t *testing.T) {
+	store, _ := newTestSQLiteStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.March, 7, 11, 0, 0, 0, time.UTC)
+	ownerKey := OwnerKeyForClerkUser("user_pending")
+
+	seedUploadRow(t, store.db, "upload-clerk-pending", ownerKey, now)
+	seedJobRow(t, store.db, seededJobRow{
+		ID:        "job-clerk-pending",
+		UploadID:  "upload-clerk-pending",
+		SessionID: ownerKey,
+		Status:    JobStatusPendingUserDedup,
+		Progress:  100,
+		CreatedAt: now,
+		UpdatedAt: now,
+		FinishedAt: func() *time.Time {
+			finished := now
+			return &finished
+		}(),
+	})
+	seedPendingReadingRow(t, store.db, seededPendingReadingRow{
+		ID:          "reading-clerk",
+		JobID:       "job-clerk-pending",
+		UploadID:    "upload-clerk-pending",
+		SessionID:   ownerKey,
+		CP:          712,
+		HP:          120,
+		IVAttack:    10,
+		IVDefense:   11,
+		IVStamina:   12,
+		LevelMethod: "UNKNOWN",
+		SourceType:  "IMAGE",
+		Status:      JobStatusPendingUserDedup,
+		Locked:      false,
+		CreatedAt:   now,
+	})
+	seedPendingOptionRow(t, store.db, seededPendingOptionRow{
+		ID:               "option-clerk",
+		PendingReadingID: "reading-clerk",
+		SpeciesName:      "Darumaka",
+		MatchMode:        "exact",
+		MatchDistance:    0,
+		OptionRank:       1,
+		CreatedAt:        now,
+	})
+
+	result, err := store.ResolvePendingReading(ctx, ResolvePendingReadingParams{
+		ReadingID: "reading-clerk",
+		OptionID:  "option-clerk",
+		OwnerKey:  ownerKey,
+		Now:       now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("expected resolve pending reading to succeed, got %v", err)
+	}
+	if result.SessionID != ownerKey {
+		t.Fatalf("expected resolved result owner key %q, got %q", ownerKey, result.SessionID)
+	}
+	if result.SpeciesName != "Darumaka" {
+		t.Fatalf("expected resolved species Darumaka, got %q", result.SpeciesName)
+	}
+
+	if _, err := store.ResolvePendingReading(ctx, ResolvePendingReadingParams{
+		ReadingID: "reading-clerk",
+		OptionID:  "option-clerk",
+		OwnerKey:  OwnerKeyForClerkUser("user_other"),
+		Now:       now.Add(2 * time.Minute),
+	}); !errors.Is(err, ErrPendingReadingNotFound) {
+		t.Fatalf("expected clerk owner isolation on resolve, got %v", err)
 	}
 }
 

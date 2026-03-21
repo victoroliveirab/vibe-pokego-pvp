@@ -26,7 +26,7 @@ func TestUploadHandlerMethodNotAllowed(t *testing.T) {
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
-	req = req.WithContext(context.WithValue(req.Context(), sessionContextKey{}, session.Session{ID: "12f9f169-d9ca-4ea3-91e0-18356a1e1477"}))
+	req = withTestGuestIdentity(req, "12f9f169-d9ca-4ea3-91e0-18356a1e1477")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -51,8 +51,8 @@ func TestUploadHandlerCreatesUploadAndJobForValidImage(t *testing.T) {
 			if params.MediaURL != "local://uploads/image-1.png" {
 				t.Fatalf("expected media url local://uploads/image-1.png, got %q", params.MediaURL)
 			}
-			if params.SessionID != "12f9f169-d9ca-4ea3-91e0-18356a1e1477" {
-				t.Fatalf("expected session id to be propagated, got %q", params.SessionID)
+			if params.OwnerKey != "12f9f169-d9ca-4ea3-91e0-18356a1e1477" {
+				t.Fatalf("expected owner key to be propagated, got %q", params.OwnerKey)
 			}
 
 			return upload.Upload{ID: "up-123"}, upload.Job{ID: "job-456"}, nil
@@ -78,7 +78,7 @@ func TestUploadHandlerCreatesUploadAndJobForValidImage(t *testing.T) {
 	)
 
 	req := newMultipartUploadRequest(t, "file", "avatar.png", pngFixtureBytes())
-	req = req.WithContext(context.WithValue(req.Context(), sessionContextKey{}, session.Session{ID: "12f9f169-d9ca-4ea3-91e0-18356a1e1477"}))
+	req = withTestGuestIdentity(req, "12f9f169-d9ca-4ea3-91e0-18356a1e1477")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -125,7 +125,7 @@ func TestUploadHandlerCreatesUploadAndJobForValidVideo(t *testing.T) {
 	handler := newUploadHandler(store, storage, prober, time.Now)
 
 	req := newMultipartUploadRequest(t, "file", "clip.mp4", mp4FixtureBytes())
-	req = req.WithContext(context.WithValue(req.Context(), sessionContextKey{}, session.Session{ID: "12f9f169-d9ca-4ea3-91e0-18356a1e1477"}))
+	req = withTestGuestIdentity(req, "12f9f169-d9ca-4ea3-91e0-18356a1e1477")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -151,7 +151,7 @@ func TestUploadHandlerMissingFileReturnsContractError(t *testing.T) {
 	)
 
 	req := newMultipartUploadRequestWithoutFile(t)
-	req = req.WithContext(context.WithValue(req.Context(), sessionContextKey{}, session.Session{ID: "12f9f169-d9ca-4ea3-91e0-18356a1e1477"}))
+	req = withTestGuestIdentity(req, "12f9f169-d9ca-4ea3-91e0-18356a1e1477")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -167,7 +167,7 @@ func TestUploadHandlerUnsupportedMediaReturnsContractError(t *testing.T) {
 	)
 
 	req := newMultipartUploadRequest(t, "file", "notes.txt", []byte("plain text"))
-	req = req.WithContext(context.WithValue(req.Context(), sessionContextKey{}, session.Session{ID: "12f9f169-d9ca-4ea3-91e0-18356a1e1477"}))
+	req = withTestGuestIdentity(req, "12f9f169-d9ca-4ea3-91e0-18356a1e1477")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -242,7 +242,7 @@ func TestUploadHandlerValidationErrorsCodes(t *testing.T) {
 			}
 
 			req := newMultipartUploadRequest(t, "file", "payload.bin", []byte{0x01})
-			req = req.WithContext(context.WithValue(req.Context(), sessionContextKey{}, session.Session{ID: "12f9f169-d9ca-4ea3-91e0-18356a1e1477"}))
+			req = withTestGuestIdentity(req, "12f9f169-d9ca-4ea3-91e0-18356a1e1477")
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 
@@ -264,6 +264,7 @@ func TestUploadHandlerInvalidSessionViaMiddleware(t *testing.T) {
 
 	handler := withSessionValidation(
 		sessionStore,
+		nil,
 		time.Now,
 		newUploadHandler(&fakeUploadStore{}, &fakeMediaStorage{}, nil, time.Now),
 	)
@@ -296,7 +297,7 @@ func TestUploadHandlerCleansUpStoredFileWhenPersistenceFails(t *testing.T) {
 
 	handler := newUploadHandler(store, storage, nil, time.Now)
 	req := newMultipartUploadRequest(t, "file", "avatar.png", pngFixtureBytes())
-	req = req.WithContext(context.WithValue(req.Context(), sessionContextKey{}, session.Session{ID: "12f9f169-d9ca-4ea3-91e0-18356a1e1477"}))
+	req = withTestGuestIdentity(req, "12f9f169-d9ca-4ea3-91e0-18356a1e1477")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -357,11 +358,11 @@ func (s *fakeUploadStore) CreateRetryJob(context.Context, string, string, time.T
 	return upload.RetryJob{}, errors.New("not implemented")
 }
 
-func (s *fakeUploadStore) ListPokemonResultsBySession(context.Context, string) ([]upload.PokemonResultRecord, error) {
+func (s *fakeUploadStore) ListPokemonResults(context.Context, string) ([]upload.PokemonResultRecord, error) {
 	return nil, nil
 }
 
-func (s *fakeUploadStore) ListPendingReadingsBySession(context.Context, string) ([]upload.PendingSpeciesReadingRecord, error) {
+func (s *fakeUploadStore) ListPendingReadings(context.Context, string) ([]upload.PendingSpeciesReadingRecord, error) {
 	return nil, nil
 }
 

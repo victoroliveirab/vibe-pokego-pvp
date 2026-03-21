@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/session"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/upload"
 )
 
@@ -22,9 +21,9 @@ func TestActiveJobStatusHandlerReturnsActiveJobPayload(t *testing.T) {
 	stage := "SAMPLING_FRAMES"
 
 	handler := newActiveJobStatusHandler(&fakeJobStatusHandlerStore{
-		getActiveJobStatusFn: func(_ context.Context, gotSessionID string) (upload.JobStatusRecord, error) {
-			if gotSessionID != sessionID {
-				t.Fatalf("expected session id %q, got %q", sessionID, gotSessionID)
+		getActiveJobStatusFn: func(_ context.Context, gotOwnerKey string) (upload.JobStatusRecord, error) {
+			if gotOwnerKey != sessionID {
+				t.Fatalf("expected owner key %q, got %q", sessionID, gotOwnerKey)
 			}
 
 			return upload.JobStatusRecord{
@@ -41,10 +40,9 @@ func TestActiveJobStatusHandlerReturnsActiveJobPayload(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/jobs/active", nil)
-	ctx := context.WithValue(req.Context(), sessionContextKey{}, session.Session{ID: sessionID})
 	rec := httptest.NewRecorder()
 
-	handler.ServeHTTP(rec, req.WithContext(ctx))
+	handler.ServeHTTP(rec, withTestGuestIdentity(req, sessionID))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
@@ -84,10 +82,9 @@ func TestActiveJobStatusHandlerReturnsNilJobWhenSessionHasNoActiveWork(t *testin
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/jobs/active", nil)
-	ctx := context.WithValue(req.Context(), sessionContextKey{}, session.Session{ID: sessionID})
 	rec := httptest.NewRecorder()
 
-	handler.ServeHTTP(rec, req.WithContext(ctx))
+	handler.ServeHTTP(rec, withTestGuestIdentity(req, sessionID))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)

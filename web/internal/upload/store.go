@@ -17,7 +17,7 @@ import (
 type CreateParams struct {
 	UploadID    string
 	JobID       string
-	SessionID   string
+	OwnerKey    string
 	Kind        string
 	MediaURL    string
 	ContentType string
@@ -28,12 +28,12 @@ type CreateParams struct {
 // Store persists upload metadata and processing jobs.
 type Store interface {
 	CreateUploadAndQueuedJob(ctx context.Context, params CreateParams) (Upload, Job, error)
-	CreateRetryJob(ctx context.Context, parentJobID string, sessionID string, now time.Time) (RetryJob, error)
-	GetJobStatus(ctx context.Context, jobID string, sessionID string) (JobStatusRecord, error)
-	GetActiveJobStatus(ctx context.Context, sessionID string) (JobStatusRecord, error)
-	ListPokemonResultsBySession(ctx context.Context, sessionID string) ([]PokemonResultRecord, error)
-	SoftDeletePokemonResult(ctx context.Context, resultID string, sessionID string, now time.Time) error
-	ListPendingReadingsBySession(ctx context.Context, sessionID string) ([]PendingSpeciesReadingRecord, error)
+	CreateRetryJob(ctx context.Context, parentJobID string, ownerKey string, now time.Time) (RetryJob, error)
+	GetJobStatus(ctx context.Context, jobID string, ownerKey string) (JobStatusRecord, error)
+	GetActiveJobStatus(ctx context.Context, ownerKey string) (JobStatusRecord, error)
+	ListPokemonResults(ctx context.Context, ownerKey string) ([]PokemonResultRecord, error)
+	SoftDeletePokemonResult(ctx context.Context, resultID string, ownerKey string, now time.Time) error
+	ListPendingReadings(ctx context.Context, ownerKey string) ([]PendingSpeciesReadingRecord, error)
 	ResolvePendingReading(ctx context.Context, params ResolvePendingReadingParams) (PokemonResultRecord, error)
 }
 
@@ -482,7 +482,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?);`
 		ctx,
 		insertUpload,
 		uploadID,
-		params.SessionID,
+		params.OwnerKey,
 		params.Kind,
 		params.MediaURL,
 		params.ContentType,
@@ -504,7 +504,7 @@ INSERT INTO jobs(
 		insertJob,
 		jobID,
 		uploadID,
-		params.SessionID,
+		params.OwnerKey,
 		nil,
 		JobStatusQueued,
 		0,
@@ -527,7 +527,7 @@ INSERT INTO jobs(
 
 	return Upload{
 			ID:          uploadID,
-			SessionID:   params.SessionID,
+			SessionID:   params.OwnerKey,
 			Kind:        params.Kind,
 			MediaURL:    params.MediaURL,
 			ContentType: params.ContentType,
@@ -536,7 +536,7 @@ INSERT INTO jobs(
 		}, Job{
 			ID:        jobID,
 			UploadID:  uploadID,
-			SessionID: params.SessionID,
+			SessionID: params.OwnerKey,
 			Status:    JobStatusQueued,
 			Progress:  0,
 			CreatedAt: now,
@@ -544,8 +544,8 @@ INSERT INTO jobs(
 		}, nil
 }
 
-// CreateRetryJob creates a new queued child job for an existing parent job owned by the session.
-func (s *sqliteStore) CreateRetryJob(ctx context.Context, parentJobID string, sessionID string, now time.Time) (RetryJob, error) {
+// CreateRetryJob creates a new queued child job for an existing parent job owned by the request owner.
+func (s *sqliteStore) CreateRetryJob(ctx context.Context, parentJobID string, ownerKey string, now time.Time) (RetryJob, error) {
 	now = now.UTC()
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -565,7 +565,7 @@ WHERE id = ? AND session_id = ?;`
 
 	var uploadID string
 	var status string
-	if err := tx.QueryRowContext(ctx, queryParentUpload, parentJobID, sessionID).Scan(&uploadID, &status); err != nil {
+	if err := tx.QueryRowContext(ctx, queryParentUpload, parentJobID, ownerKey).Scan(&uploadID, &status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return RetryJob{}, ErrJobNotFound
 		}
@@ -593,7 +593,7 @@ INSERT INTO jobs(
 		insertRetryJob,
 		retryJobID,
 		uploadID,
-		sessionID,
+		ownerKey,
 		parentJobID,
 		JobStatusQueued,
 		0,
@@ -618,15 +618,15 @@ INSERT INTO jobs(
 		ID:          retryJobID,
 		ParentJobID: parentJobID,
 		UploadID:    uploadID,
-		SessionID:   sessionID,
+		SessionID:   ownerKey,
 		Status:      JobStatusQueued,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}, nil
 }
 
-// GetJobStatus returns one job status record scoped to a session.
-func (s *sqliteStore) GetJobStatus(ctx context.Context, jobID string, sessionID string) (JobStatusRecord, error) {
+// GetJobStatus returns one job status record scoped to a request owner.
+func (s *sqliteStore) GetJobStatus(ctx context.Context, jobID string, ownerKey string) (JobStatusRecord, error) {
 	const query = `
 SELECT id, upload_id, session_id, status, progress, stage,
        created_at, updated_at, finished_at, error_code, error_message
@@ -641,7 +641,7 @@ WHERE id = ? AND session_id = ?;`
 	var errorCode sql.NullString
 	var errorMessage sql.NullString
 
-	if err := s.db.QueryRowContext(ctx, query, jobID, sessionID).Scan(
+	if err := s.db.QueryRowContext(ctx, query, jobID, ownerKey).Scan(
 		&record.ID,
 		&record.UploadID,
 		&record.SessionID,
@@ -688,7 +688,7 @@ WHERE id = ? AND session_id = ?;`
 	return record, nil
 }
 
-func (s *sqliteStore) GetActiveJobStatus(ctx context.Context, sessionID string) (JobStatusRecord, error) {
+func (s *sqliteStore) GetActiveJobStatus(ctx context.Context, ownerKey string) (JobStatusRecord, error) {
 	const query = `
 SELECT id, upload_id, session_id, status, progress, stage,
        created_at, updated_at, finished_at, error_code, error_message
@@ -709,7 +709,7 @@ LIMIT 1;`
 	if err := s.db.QueryRowContext(
 		ctx,
 		query,
-		sessionID,
+		ownerKey,
 		JobStatusQueued,
 		JobStatusProcessing,
 	).Scan(
@@ -759,8 +759,8 @@ LIMIT 1;`
 	return record, nil
 }
 
-// ListPokemonResultsBySession returns accepted appraisal results for one session.
-func (s *sqliteStore) ListPokemonResultsBySession(ctx context.Context, sessionID string) ([]PokemonResultRecord, error) {
+// ListPokemonResults returns accepted appraisal results for one request owner.
+func (s *sqliteStore) ListPokemonResults(ctx context.Context, ownerKey string) ([]PokemonResultRecord, error) {
 	const query = `
 SELECT id, job_id, upload_id, session_id, species_name, cp, hp,
        power_up_stardust_cost, iv_attack, iv_defense, iv_stamina,
@@ -770,7 +770,7 @@ FROM appraisal_results
 WHERE session_id = ? AND deleted_at IS NULL
 ORDER BY created_at ASC, id ASC;`
 
-	rows, err := s.db.QueryContext(ctx, query, sessionID)
+	rows, err := s.db.QueryContext(ctx, query, ownerKey)
 	if err != nil {
 		return nil, fmt.Errorf("query pokemon results by session: %w", err)
 	}
@@ -836,7 +836,7 @@ ORDER BY created_at ASC, id ASC;`
 		return results, nil
 	}
 
-	tombstonedKeys, err := s.listPokemonResultDedupeTombstonesBySession(ctx, sessionID)
+	tombstonedKeys, err := s.listPokemonResultDedupeTombstones(ctx, ownerKey)
 	if err != nil {
 		return nil, err
 	}
@@ -868,7 +868,7 @@ ORDER BY created_at ASC, id ASC;`
 		return visibleResults, nil
 	}
 
-	evaluationsByResultID, err := s.listPokemonResultMaxCPEvaluationsBySession(ctx, sessionID)
+	evaluationsByResultID, err := s.listPokemonResultMaxCPEvaluations(ctx, ownerKey)
 	if err != nil {
 		return nil, err
 	}
@@ -881,9 +881,9 @@ ORDER BY created_at ASC, id ASC;`
 	return visibleResults, nil
 }
 
-func (s *sqliteStore) listPokemonResultMaxCPEvaluationsBySession(
+func (s *sqliteStore) listPokemonResultMaxCPEvaluations(
 	ctx context.Context,
-	sessionID string,
+	ownerKey string,
 ) (map[string][]PokemonResultMaxCPEvaluationRecord, error) {
 	const query = `
 SELECT e.appraisal_result_id, e.max_cp, e.evaluated_species_id, e.best_level, e.best_cp,
@@ -893,7 +893,7 @@ JOIN appraisal_results r ON r.id = e.appraisal_result_id
 WHERE r.session_id = ? AND r.deleted_at IS NULL
 ORDER BY e.appraisal_result_id ASC, e.max_cp ASC, e.evaluated_species_id ASC;`
 
-	rows, err := s.db.QueryContext(ctx, query, sessionID)
+	rows, err := s.db.QueryContext(ctx, query, ownerKey)
 	if err != nil {
 		return nil, fmt.Errorf("query pokemon result max cp evaluations by session: %w", err)
 	}
@@ -926,16 +926,16 @@ ORDER BY e.appraisal_result_id ASC, e.max_cp ASC, e.evaluated_species_id ASC;`
 	return evaluationsByResultID, nil
 }
 
-func (s *sqliteStore) listPokemonResultDedupeTombstonesBySession(
+func (s *sqliteStore) listPokemonResultDedupeTombstones(
 	ctx context.Context,
-	sessionID string,
+	ownerKey string,
 ) (map[string]struct{}, error) {
 	const query = `
 SELECT dedupe_key
 FROM appraisal_result_dedupe_tombstones
 WHERE session_id = ?;`
 
-	rows, err := s.db.QueryContext(ctx, query, sessionID)
+	rows, err := s.db.QueryContext(ctx, query, ownerKey)
 	if err != nil {
 		return nil, fmt.Errorf("query pokemon result dedupe tombstones by session: %w", err)
 	}
@@ -958,13 +958,13 @@ WHERE session_id = ?;`
 	return tombstonedKeys, nil
 }
 
-// SoftDeletePokemonResult marks one accepted appraisal result as deleted for a session.
-func (s *sqliteStore) SoftDeletePokemonResult(ctx context.Context, resultID string, sessionID string, now time.Time) error {
+// SoftDeletePokemonResult marks one accepted appraisal result as deleted for a request owner.
+func (s *sqliteStore) SoftDeletePokemonResult(ctx context.Context, resultID string, ownerKey string, now time.Time) error {
 	if strings.TrimSpace(resultID) == "" {
 		return fmt.Errorf("resultID is required")
 	}
-	if strings.TrimSpace(sessionID) == "" {
-		return fmt.Errorf("sessionID is required")
+	if strings.TrimSpace(ownerKey) == "" {
+		return fmt.Errorf("ownerKey is required")
 	}
 
 	timestamp := now.UTC()
@@ -980,7 +980,7 @@ func (s *sqliteStore) SoftDeletePokemonResult(ctx context.Context, resultID stri
 		_ = tx.Rollback()
 	}()
 
-	resultIdentity, err := readPokemonResultDedupIdentity(ctx, tx, resultID, sessionID)
+	resultIdentity, err := readPokemonResultDedupIdentity(ctx, tx, resultID, ownerKey)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrPokemonResultNotFound
@@ -992,7 +992,7 @@ func (s *sqliteStore) SoftDeletePokemonResult(ctx context.Context, resultID stri
 		ctx,
 		`INSERT OR IGNORE INTO appraisal_result_dedupe_tombstones(session_id, dedupe_key, source_result_id, created_at)
 		 VALUES (?, ?, ?, ?);`,
-		sessionID,
+		ownerKey,
 		pokemonResultDedupKeyFromIdentity(resultIdentity),
 		resultID,
 		timestamp.Format(time.RFC3339Nano),
@@ -1007,7 +1007,7 @@ func (s *sqliteStore) SoftDeletePokemonResult(ctx context.Context, resultID stri
 		 WHERE id = ? AND session_id = ? AND deleted_at IS NULL;`,
 		timestamp.Format(time.RFC3339Nano),
 		resultID,
-		sessionID,
+		ownerKey,
 	)
 	if err != nil {
 		return fmt.Errorf("soft delete appraisal result: %w", err)
@@ -1042,7 +1042,7 @@ func readPokemonResultDedupIdentity(
 	ctx context.Context,
 	tx *sql.Tx,
 	resultID string,
-	sessionID string,
+	ownerKey string,
 ) (pokemonResultDedupIdentity, error) {
 	const query = `
 SELECT species_name, cp, hp, iv_attack, iv_defense, iv_stamina, level_estimate
@@ -1051,7 +1051,7 @@ WHERE id = ? AND session_id = ? AND deleted_at IS NULL;`
 
 	var identity pokemonResultDedupIdentity
 	var levelEstimate sql.NullFloat64
-	if err := tx.QueryRowContext(ctx, query, resultID, sessionID).Scan(
+	if err := tx.QueryRowContext(ctx, query, resultID, ownerKey).Scan(
 		&identity.SpeciesName,
 		&identity.CP,
 		&identity.HP,
@@ -1103,8 +1103,8 @@ func pokemonResultLevelDedupKeyPart(levelEstimate *float64) string {
 	return strconv.FormatUint(math.Float64bits(*levelEstimate), 16)
 }
 
-// ListPendingReadingsBySession returns unresolved pending readings with ranked options for one session.
-func (s *sqliteStore) ListPendingReadingsBySession(ctx context.Context, sessionID string) ([]PendingSpeciesReadingRecord, error) {
+// ListPendingReadings returns unresolved pending readings with ranked options for one request owner.
+func (s *sqliteStore) ListPendingReadings(ctx context.Context, ownerKey string) ([]PendingSpeciesReadingRecord, error) {
 	const queryPendingReadings = `
 SELECT id, job_id, upload_id, session_id, cp, hp, iv_attack, iv_defense, iv_stamina,
        level_estimate, level_confidence, level_method, source_type, frame_timestamp_ms,
@@ -1113,7 +1113,7 @@ FROM appraisal_pending_readings
 WHERE session_id = ? AND status = ? AND locked = 0
 ORDER BY created_at ASC, id ASC;`
 
-	rows, err := s.db.QueryContext(ctx, queryPendingReadings, sessionID, JobStatusPendingUserDedup)
+	rows, err := s.db.QueryContext(ctx, queryPendingReadings, ownerKey, JobStatusPendingUserDedup)
 	if err != nil {
 		return nil, fmt.Errorf("query pending readings by session: %w", err)
 	}
@@ -1246,15 +1246,15 @@ ORDER BY option_rank ASC, id ASC;`
 func (s *sqliteStore) ResolvePendingReading(ctx context.Context, params ResolvePendingReadingParams) (PokemonResultRecord, error) {
 	readingID := params.ReadingID
 	optionID := params.OptionID
-	sessionID := params.SessionID
+	ownerKey := params.OwnerKey
 	if readingID == "" {
 		return PokemonResultRecord{}, fmt.Errorf("readingID is required")
 	}
 	if optionID == "" {
 		return PokemonResultRecord{}, fmt.Errorf("optionID is required")
 	}
-	if sessionID == "" {
-		return PokemonResultRecord{}, fmt.Errorf("sessionID is required")
+	if ownerKey == "" {
+		return PokemonResultRecord{}, fmt.Errorf("ownerKey is required")
 	}
 
 	now := params.Now.UTC()
@@ -1289,7 +1289,7 @@ WHERE r.id = ? AND r.session_id = ?;`
 	var jobStatus string
 	var lockedRaw int
 
-	if err := tx.QueryRowContext(ctx, queryPendingReading, readingID, sessionID).Scan(
+	if err := tx.QueryRowContext(ctx, queryPendingReading, readingID, ownerKey).Scan(
 		&reading.ID,
 		&reading.JobID,
 		&reading.UploadID,
@@ -1368,7 +1368,7 @@ WHERE id = ? AND session_id = ? AND status = ? AND locked = 0;`
 		selectedSpeciesNameValue,
 		nowRaw,
 		readingID,
-		sessionID,
+		ownerKey,
 		JobStatusPendingUserDedup,
 	)
 	if err != nil {
@@ -1395,7 +1395,7 @@ WHERE id = ? AND session_id = ? AND status = ?;`
 		nowRaw,
 		nowRaw,
 		reading.JobID,
-		sessionID,
+		ownerKey,
 		JobStatusPendingUserDedup,
 	)
 	if err != nil {

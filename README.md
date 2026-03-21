@@ -35,11 +35,19 @@ My ideal workflow is: 1. screen record my phone in Pokemon GO as I go through my
 ## What It Does
 
 - Accepts screenshot or video uploads from the browser UI.
-- Creates an anonymous session and processes uploads asynchronously.
+- Lets signed-out visitors try the app immediately with an anonymous guest session.
+- Supports Clerk sign-in for durable, account-backed records that sync across devices.
 - Runs OCR + appraisal parsing in a background worker.
 - Stores and serves parsed Pokemon results through the API.
 - Supports pending species confirmation when OCR needs user disambiguation.
 - Supports retrying failed jobs from the UI.
+
+## Auth Behavior
+
+- Signed-out visitors get a temporary guest session automatically.
+- Guest records can disappear at any time and are cleared from local state when the user signs in.
+- Signed-in requests use Clerk bearer tokens on the same API endpoints.
+- Signed-in records persist by Clerk user and are expected to appear across devices or browser sessions.
 
 ## Architecture
 
@@ -64,7 +72,7 @@ My ideal workflow is: 1. screen record my phone in Pokemon GO as I go through my
 
 - Docker + Docker Compose
 - Node.js + npm
-- Go 1.22+
+- Go 1.24+
 
 ### 1) Bootstrap
 
@@ -116,8 +124,19 @@ Use `.env.example` as your base. Key variables:
 - `DATABASE_PATH=./var/app.db` (local fallback)
 - `UPLOAD_STORAGE_MODE=local` for local development
 - `UPLOAD_LOCAL_DIR=./testdata/uploads`
+- `VITE_CLERK_PUBLISHABLE_KEY` for Clerk frontend UI
+- `CLERK_ENABLED=true` to enable Clerk bearer-token auth in the web API
+- `CLERK_SECRET_KEY` when Clerk auth is enabled
+- `CLERK_AUTHORIZED_PARTIES=http://127.0.0.1:4173,http://localhost:4173` for local Clerk token validation
+
+For local development, use real Clerk dev keys so the frontend and backend exercise the same auth path as production.
 
 For production/deploy-style runs, use `.env.production.example` as reference (`UPLOAD_STORAGE_MODE=uploadthing`, remote DB URL/token, CORS origin, etc.).
+
+## Smoke Coverage
+
+- `make test-smoke` is intentionally deterministic and covers the guest session flow only.
+- Clerk-authenticated browser flows are covered by mocked frontend/backend tests plus manual verification, because stable smoke automation would otherwise require live Clerk browser token acquisition.
 
 ## Useful Commands
 

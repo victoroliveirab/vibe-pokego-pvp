@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/session"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/upload"
 )
 
@@ -116,12 +115,12 @@ func TestJobStatusHandlerReturnsMappedPayloadForQueuedFailedAndPendingUserDedup(
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &fakeJobStatusHandlerStore{
-				getJobStatusFn: func(_ context.Context, gotJobID, gotSessionID string) (upload.JobStatusRecord, error) {
+				getJobStatusFn: func(_ context.Context, gotJobID, gotOwnerKey string) (upload.JobStatusRecord, error) {
 					if gotJobID != jobID {
 						t.Fatalf("expected job id %q, got %q", jobID, gotJobID)
 					}
-					if gotSessionID != sessionID {
-						t.Fatalf("expected session id %q, got %q", sessionID, gotSessionID)
+					if gotOwnerKey != sessionID {
+						t.Fatalf("expected owner key %q, got %q", sessionID, gotOwnerKey)
 					}
 					return tc.record, nil
 				},
@@ -275,8 +274,8 @@ func TestJobStatusHandlerFailedPayloadNormalizesMissingErrorField(t *testing.T) 
 }
 
 type fakeJobStatusHandlerStore struct {
-	getJobStatusFn       func(ctx context.Context, jobID string, sessionID string) (upload.JobStatusRecord, error)
-	getActiveJobStatusFn func(ctx context.Context, sessionID string) (upload.JobStatusRecord, error)
+	getJobStatusFn       func(ctx context.Context, jobID string, ownerKey string) (upload.JobStatusRecord, error)
+	getActiveJobStatusFn func(ctx context.Context, ownerKey string) (upload.JobStatusRecord, error)
 }
 
 func (s *fakeJobStatusHandlerStore) CreateUploadAndQueuedJob(context.Context, upload.CreateParams) (upload.Upload, upload.Job, error) {
@@ -290,28 +289,28 @@ func (s *fakeJobStatusHandlerStore) CreateRetryJob(context.Context, string, stri
 func (s *fakeJobStatusHandlerStore) GetJobStatus(
 	ctx context.Context,
 	jobID string,
-	sessionID string,
+	ownerKey string,
 ) (upload.JobStatusRecord, error) {
 	if s.getJobStatusFn != nil {
-		return s.getJobStatusFn(ctx, jobID, sessionID)
+		return s.getJobStatusFn(ctx, jobID, ownerKey)
 	}
 
 	return upload.JobStatusRecord{}, nil
 }
 
-func (s *fakeJobStatusHandlerStore) GetActiveJobStatus(ctx context.Context, sessionID string) (upload.JobStatusRecord, error) {
+func (s *fakeJobStatusHandlerStore) GetActiveJobStatus(ctx context.Context, ownerKey string) (upload.JobStatusRecord, error) {
 	if s.getActiveJobStatusFn != nil {
-		return s.getActiveJobStatusFn(ctx, sessionID)
+		return s.getActiveJobStatusFn(ctx, ownerKey)
 	}
 
 	return upload.JobStatusRecord{}, upload.ErrJobNotFound
 }
 
-func (s *fakeJobStatusHandlerStore) ListPokemonResultsBySession(context.Context, string) ([]upload.PokemonResultRecord, error) {
+func (s *fakeJobStatusHandlerStore) ListPokemonResults(context.Context, string) ([]upload.PokemonResultRecord, error) {
 	return nil, nil
 }
 
-func (s *fakeJobStatusHandlerStore) ListPendingReadingsBySession(
+func (s *fakeJobStatusHandlerStore) ListPendingReadings(
 	context.Context,
 	string,
 ) ([]upload.PendingSpeciesReadingRecord, error) {
@@ -349,8 +348,7 @@ type jobStatusHandlerError struct {
 func newJobStatusHandlerRequest(method string, path string, jobID string, sessionID string) *http.Request {
 	req := httptest.NewRequest(method, path, nil)
 	req.SetPathValue("jobId", jobID)
-	ctx := context.WithValue(req.Context(), sessionContextKey{}, session.Session{ID: sessionID})
-	return req.WithContext(ctx)
+	return withTestGuestIdentity(req, sessionID)
 }
 
 func assertNilErrorObject(t *testing.T, got *jobStatusHandlerError) {

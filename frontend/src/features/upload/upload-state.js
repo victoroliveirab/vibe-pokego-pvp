@@ -173,6 +173,10 @@ export const initialUploadState = {
  */
 export function uploadStateReducer(state, action) {
   switch (action.type) {
+    case "reset":
+      return {
+        ...initialUploadState,
+      };
     case "select-file":
       return {
         ...state,
@@ -299,6 +303,6 @@ export function uploadStateReducer(state, action) {
         error: action.error,
       };
     default:
-        return state;
+      return state;
   }
 }

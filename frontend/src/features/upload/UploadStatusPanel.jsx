@@ -51,6 +51,7 @@ export default function UploadStatusPanel({
   canRetry,
   error,
   finishedAt,
+  identityMode = "",
   isDebugMode = false,
   isRetrying,
   jobError,
@@ -74,7 +75,11 @@ export default function UploadStatusPanel({
     return (
       <section className={`${statusPanelWrapperClass} ${statusToneClasses(phase)}`} role="status">
         <p className="status-panel-title">Preparing session</p>
-        <p className="mt-1 text-sm text-cyan-50">Creating an anonymous session so your upload can be processed.</p>
+        <p className="mt-1 text-sm text-cyan-50">
+          {identityMode === "guest"
+            ? "Creating a temporary guest session so your upload can be processed."
+            : "Checking your account status and preparing upload access."}
+        </p>
       </section>
     );
   }

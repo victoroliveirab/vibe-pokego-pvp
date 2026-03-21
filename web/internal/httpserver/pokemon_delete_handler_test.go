@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/session"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/upload"
 )
 
@@ -134,7 +133,7 @@ func (s *fakePokemonDeleteHandlerStore) GetActiveJobStatus(context.Context, stri
 	return upload.JobStatusRecord{}, upload.ErrJobNotFound
 }
 
-func (s *fakePokemonDeleteHandlerStore) ListPokemonResultsBySession(context.Context, string) ([]upload.PokemonResultRecord, error) {
+func (s *fakePokemonDeleteHandlerStore) ListPokemonResults(context.Context, string) ([]upload.PokemonResultRecord, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -151,7 +150,7 @@ func (s *fakePokemonDeleteHandlerStore) SoftDeletePokemonResult(
 	return nil
 }
 
-func (s *fakePokemonDeleteHandlerStore) ListPendingReadingsBySession(context.Context, string) ([]upload.PendingSpeciesReadingRecord, error) {
+func (s *fakePokemonDeleteHandlerStore) ListPendingReadings(context.Context, string) ([]upload.PendingSpeciesReadingRecord, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -165,6 +164,5 @@ func (s *fakePokemonDeleteHandlerStore) ResolvePendingReading(
 func newPokemonDeleteHandlerRequest(method string, path string, resultID string, sessionID string) *http.Request {
 	req := httptest.NewRequest(method, path, nil)
 	req.SetPathValue("resultId", resultID)
-	ctx := context.WithValue(req.Context(), sessionContextKey{}, session.Session{ID: sessionID})
-	return req.WithContext(ctx)
+	return withTestGuestIdentity(req, sessionID)
 }

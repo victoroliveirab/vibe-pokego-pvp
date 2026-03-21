@@ -39,7 +39,7 @@ describe("job api", () => {
       "/jobs/job-1",
       expect.objectContaining({
         method: "GET",
-        requiresSession: true,
+        requiresIdentity: true,
         sessionId: "session-1",
       }),
     );
@@ -95,7 +95,7 @@ describe("job api", () => {
       "/jobs/job-1/retry",
       expect.objectContaining({
         method: "POST",
-        requiresSession: true,
+        requiresIdentity: true,
         sessionId: "session-1",
       }),
     );
