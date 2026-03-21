@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"github.com/clerk/clerk-sdk-go/v2"
 	clerkhttp "github.com/clerk/clerk-sdk-go/v2/http"
 	"github.com/clerk/clerk-sdk-go/v2/jwks"
+	clerkjwt "github.com/clerk/clerk-sdk-go/v2/jwt"
 	"github.com/victoroliveirab/vibe-pokemongo-appraisal-app/web/internal/config"
 )
 
@@ -24,8 +26,14 @@ func newClerkAuthenticator(cfg config.ClerkConfig) (*clerkAuthenticator, error) 
 
 	clerk.SetKey(cfg.SecretKey)
 
+	jwksClient, err := newClerkJWKSClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	options := []clerkhttp.AuthorizationOption{
-		clerkhttp.AuthorizationFailureHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		clerkhttp.AuthorizationFailureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			logClerkAuthorizationFailure(r, cfg, jwksClient)
 			writeInvalidAuthorization(w)
 		})),
 	}
@@ -37,10 +45,8 @@ func newClerkAuthenticator(cfg config.ClerkConfig) (*clerkAuthenticator, error) 
 		options = append(options, clerkhttp.ProxyURL(cfg.ProxyURL))
 	}
 
-	if client, err := newClerkJWKSClient(cfg); err != nil {
-		return nil, err
-	} else if client != nil {
-		options = append(options, clerkhttp.JWKSClient(client))
+	if jwksClient != nil {
+		options = append(options, clerkhttp.JWKSClient(jwksClient))
 	}
 
 	return &clerkAuthenticator{options: options}, nil
@@ -128,4 +134,107 @@ func cloneURL(value *url.URL) *url.URL {
 
 func writeInvalidAuthorization(w http.ResponseWriter) {
 	writeAPIError(w, http.StatusUnauthorized, "INVALID_AUTHORIZATION", "Missing or invalid Authorization header", nil)
+}
+
+func logClerkAuthorizationFailure(r *http.Request, cfg config.ClerkConfig, jwksClient *jwks.Client) {
+	logger := slog.Default()
+	if r == nil {
+		logger.Warn("clerk authorization failed", "reason", "request missing")
+		return
+	}
+
+	token := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(r.Header.Get(authorizationHeaderName)), "Bearer "))
+	if token == "" {
+		logger.Warn(
+			"clerk authorization failed",
+			"reason", "authorization token missing",
+			"path", r.URL.Path,
+			"proxy_url", cfg.ProxyURL,
+			"authorized_parties", cfg.AuthorizedParties,
+		)
+		return
+	}
+
+	decoded, err := clerkjwt.Decode(r.Context(), &clerkjwt.DecodeParams{Token: token})
+	if err != nil {
+		logger.Warn(
+			"clerk authorization failed",
+			"reason", "token decode failed",
+			"error", err.Error(),
+			"path", r.URL.Path,
+			"proxy_url", cfg.ProxyURL,
+			"authorized_parties", cfg.AuthorizedParties,
+		)
+		return
+	}
+
+	verifyParams := clerkjwt.VerifyParams{
+		Token:      token,
+		JWKSClient: jwksClient,
+		Clock:      clerk.NewClock(),
+	}
+	if strings.TrimSpace(cfg.ProxyURL) != "" {
+		verifyParams.ProxyURL = clerk.String(cfg.ProxyURL)
+	}
+	if len(cfg.AuthorizedParties) > 0 {
+		authorizedParties := make(map[string]struct{}, len(cfg.AuthorizedParties))
+		for _, party := range cfg.AuthorizedParties {
+			authorizedParties[party] = struct{}{}
+		}
+		verifyParams.AuthorizedPartyHandler = func(azp string) bool {
+			if azp == "" || len(authorizedParties) == 0 {
+				return true
+			}
+			_, ok := authorizedParties[azp]
+			return ok
+		}
+	}
+
+	claims, verifyErr := clerkjwt.Verify(r.Context(), &verifyParams)
+	extraClaims := decoded.Extra
+	logger.Warn(
+		"clerk authorization failed",
+		"path", r.URL.Path,
+		"host", r.Host,
+		"issuer", decoded.Issuer,
+		"subject", decoded.Subject,
+		"kid", decoded.KeyID,
+		"sid", stringClaim(extraClaims, "sid"),
+		"azp", stringClaim(extraClaims, "azp"),
+		"proxy_url", cfg.ProxyURL,
+		"authorized_parties", cfg.AuthorizedParties,
+		"jwks_url", cfg.JWKSURL,
+		"frontend_api_url", cfg.FrontendAPIURL,
+		"verify_error", errorString(verifyErr),
+		"manual_verify_subject", claimsSubject(claims),
+	)
+}
+
+func stringClaim(values map[string]any, key string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	raw, ok := values[key]
+	if !ok {
+		return ""
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return value
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func claimsSubject(claims *clerk.SessionClaims) string {
+	if claims == nil {
+		return ""
+	}
+	return claims.Subject
 }
