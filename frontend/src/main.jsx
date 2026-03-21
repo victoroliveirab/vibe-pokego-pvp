@@ -6,6 +6,7 @@ import App from "./App";
 import "./index.css";
 
 const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+const clerkProxyURL = (import.meta.env.VITE_CLERK_PROXY_URL || "").trim();
 
 if (!clerkPublishableKey) {
   throw new Error("Add VITE_CLERK_PUBLISHABLE_KEY to the environment");
@@ -13,7 +14,7 @@ if (!clerkPublishableKey) {
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <ClerkProvider publishableKey={clerkPublishableKey}>
+    <ClerkProvider publishableKey={clerkPublishableKey} proxyUrl={clerkProxyURL || undefined}>
       <BrowserRouter>
         <App />
       </BrowserRouter>

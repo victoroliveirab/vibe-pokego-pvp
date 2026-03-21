@@ -29,6 +29,11 @@ func New(cfg config.Config, storage config.StorageConfig) (*http.Server, error) 
 		return nil, fmt.Errorf("initialize session store: %w", err)
 	}
 
+	clerkFrontendAPIProxy, err := newClerkFrontendAPIProxyHandler(cfg.Clerk)
+	if err != nil {
+		return nil, fmt.Errorf("initialize clerk frontend api proxy: %w", err)
+	}
+
 	authenticator, err := newClerkAuthenticator(cfg.Clerk)
 	if err != nil {
 		return nil, fmt.Errorf("initialize clerk authenticator: %w", err)
@@ -64,6 +69,10 @@ func New(cfg config.Config, storage config.StorageConfig) (*http.Server, error) 
 			"storage_mode": storage.Mode,
 		})
 	})
+	if clerkFrontendAPIProxy != nil {
+		mux.Handle(clerkFrontendAPIProxyPath, clerkFrontendAPIProxy)
+		mux.Handle(clerkFrontendAPIProxyPath+"/", clerkFrontendAPIProxy)
+	}
 	mux.Handle("/session", newSessionHandler(sessionStore, authenticator, time.Now))
 	mux.Handle("/uploads", withSessionValidation(sessionStore, authenticator, time.Now, uploadsHandler))
 	mux.Handle("/jobs/active", withSessionValidation(sessionStore, authenticator, time.Now, activeJobHandler))

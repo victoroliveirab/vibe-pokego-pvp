@@ -128,6 +128,7 @@ Use `.env.example` as your base. Key variables:
 - `CLERK_ENABLED=true` to enable Clerk bearer-token auth in the web API
 - `CLERK_SECRET_KEY` when Clerk auth is enabled
 - `CLERK_AUTHORIZED_PARTIES=http://127.0.0.1:4173,http://localhost:4173` for local Clerk token validation
+- `CLERK_PROXY_URL=/api/__clerk` if you want to proxy Clerk Frontend API requests through the app domain instead of Clerk DNS/CNAME setup
 
 For local development, use real Clerk dev keys so the frontend and backend exercise the same auth path as production.
 

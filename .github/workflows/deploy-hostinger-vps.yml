@@ -113,10 +113,11 @@ jobs:
           VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           CLERK_AUTHORIZED_PARTIES: ${{ secrets.CLERK_AUTHORIZED_PARTIES }}
+          CLERK_PROXY_URL: ${{ secrets.CLERK_PROXY_URL }}
         run: |
           set -euo pipefail
           ssh -p "${SSH_PORT}" "${SSH_USER}@${SSH_HOST}" \
-            "DEPLOY_PATH='${DEPLOY_PATH}' BETTERSTACK_SOURCE_TOKEN='${BETTERSTACK_SOURCE_TOKEN}' BETTERSTACK_INGESTING_HOST='${BETTERSTACK_INGESTING_HOST}' VITE_CLERK_PUBLISHABLE_KEY='${VITE_CLERK_PUBLISHABLE_KEY}' CLERK_SECRET_KEY='${CLERK_SECRET_KEY}' CLERK_AUTHORIZED_PARTIES='${CLERK_AUTHORIZED_PARTIES}' bash -se" <<'EOF'
+            "DEPLOY_PATH='${DEPLOY_PATH}' BETTERSTACK_SOURCE_TOKEN='${BETTERSTACK_SOURCE_TOKEN}' BETTERSTACK_INGESTING_HOST='${BETTERSTACK_INGESTING_HOST}' VITE_CLERK_PUBLISHABLE_KEY='${VITE_CLERK_PUBLISHABLE_KEY}' CLERK_SECRET_KEY='${CLERK_SECRET_KEY}' CLERK_AUTHORIZED_PARTIES='${CLERK_AUTHORIZED_PARTIES}' CLERK_PROXY_URL='${CLERK_PROXY_URL}' bash -se" <<'EOF'
           set -euo pipefail
           cd "${DEPLOY_PATH}"
           test -f .env.production
@@ -157,6 +158,9 @@ jobs:
           if [ "${CLERK_ENABLED:-false}" = "true" ]; then
             ensure_env_var "CLERK_SECRET_KEY" "${CLERK_SECRET_KEY}"
             ensure_env_var "CLERK_AUTHORIZED_PARTIES" "${CLERK_AUTHORIZED_PARTIES}"
+            if [ -n "${CLERK_PROXY_URL:-}" ]; then
+              ensure_env_var "CLERK_PROXY_URL" "${CLERK_PROXY_URL}"
+            fi
           fi
           rm -f .env.production.bak
 

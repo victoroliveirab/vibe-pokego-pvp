@@ -15,6 +15,7 @@ const (
 
 	defaultUploadThingPrepareUploadURL   = "https://api.uploadthing.com/v7/prepareUpload"
 	defaultUploadThingRequestTimeoutSecs = 30
+	defaultClerkFrontendAPIURL           = "https://frontend-api.clerk.dev"
 )
 
 // StorageConfig holds upload storage runtime settings.
@@ -32,6 +33,8 @@ type ClerkConfig struct {
 	SecretKey         string
 	AuthorizedParties []string
 	JWKSURL           string
+	ProxyURL          string
+	FrontendAPIURL    string
 }
 
 // Config holds web runtime settings.
@@ -256,26 +259,71 @@ func loadClerkConfig() (ClerkConfig, error) {
 		SecretKey:         strings.TrimSpace(os.Getenv("CLERK_SECRET_KEY")),
 		AuthorizedParties: dedupeNonEmpty(strings.Split(os.Getenv("CLERK_AUTHORIZED_PARTIES"), ",")),
 		JWKSURL:           strings.TrimSpace(os.Getenv("CLERK_JWKS_URL")),
+		ProxyURL:          strings.TrimSpace(os.Getenv("CLERK_PROXY_URL")),
+		FrontendAPIURL:    strings.TrimSpace(os.Getenv("CLERK_FRONTEND_API_URL")),
 	}
 
-	if !clerkConfig.Enabled {
-		return clerkConfig, nil
-	}
-
-	if clerkConfig.SecretKey == "" {
-		return ClerkConfig{}, fmt.Errorf("CLERK_SECRET_KEY is required when CLERK_ENABLED=true")
-	}
-	if len(clerkConfig.AuthorizedParties) == 0 {
-		return ClerkConfig{}, fmt.Errorf("CLERK_AUTHORIZED_PARTIES is required when CLERK_ENABLED=true")
-	}
-	if clerkConfig.JWKSURL != "" {
-		parsed, err := url.Parse(clerkConfig.JWKSURL)
-		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-			return ClerkConfig{}, fmt.Errorf("CLERK_JWKS_URL must be a valid URL")
+	if clerkConfig.Enabled {
+		if clerkConfig.SecretKey == "" {
+			return ClerkConfig{}, fmt.Errorf("CLERK_SECRET_KEY is required when CLERK_ENABLED=true")
+		}
+		if len(clerkConfig.AuthorizedParties) == 0 {
+			return ClerkConfig{}, fmt.Errorf("CLERK_AUTHORIZED_PARTIES is required when CLERK_ENABLED=true")
+		}
+		if clerkConfig.JWKSURL != "" {
+			parsed, err := url.Parse(clerkConfig.JWKSURL)
+			if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+				return ClerkConfig{}, fmt.Errorf("CLERK_JWKS_URL must be a valid URL")
+			}
 		}
 	}
 
+	if err := normalizeClerkProxyConfig(&clerkConfig); err != nil {
+		return ClerkConfig{}, err
+	}
+
 	return clerkConfig, nil
+}
+
+func normalizeClerkProxyConfig(clerkConfig *ClerkConfig) error {
+	if clerkConfig == nil {
+		return nil
+	}
+
+	if clerkConfig.ProxyURL != "" {
+		if err := validateClerkProxyURL(clerkConfig.ProxyURL); err != nil {
+			return err
+		}
+		if clerkConfig.FrontendAPIURL == "" {
+			clerkConfig.FrontendAPIURL = defaultClerkFrontendAPIURL
+		}
+	}
+
+	if clerkConfig.FrontendAPIURL != "" {
+		parsed, err := url.Parse(clerkConfig.FrontendAPIURL)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return fmt.Errorf("CLERK_FRONTEND_API_URL must be a valid URL")
+		}
+	}
+
+	return nil
+}
+
+func validateClerkProxyURL(value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	if strings.HasPrefix(trimmed, "/") {
+		return nil
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return fmt.Errorf("CLERK_PROXY_URL must be a rooted path or valid URL")
+	}
+
+	return nil
 }
 
 func defaultCORSOrigins() []string {

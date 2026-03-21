@@ -124,6 +124,26 @@ func TestLoadFromEnvLoadsClerkConfigWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvLoadsClerkProxyConfigWhenConfigured(t *testing.T) {
+	setValidWebEnv(t, filepath.Join(t.TempDir(), "uploads"))
+	t.Setenv("CLERK_ENABLED", "true")
+	t.Setenv("CLERK_SECRET_KEY", "sk_test_123")
+	t.Setenv("CLERK_AUTHORIZED_PARTIES", "https://app.example.com")
+	t.Setenv("CLERK_PROXY_URL", "/api/__clerk")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("expected config to load, got: %v", err)
+	}
+
+	if cfg.Clerk.ProxyURL != "/api/__clerk" {
+		t.Fatalf("expected clerk proxy url %q, got %q", "/api/__clerk", cfg.Clerk.ProxyURL)
+	}
+	if cfg.Clerk.FrontendAPIURL != defaultClerkFrontendAPIURL {
+		t.Fatalf("expected default clerk frontend api url %q, got %q", defaultClerkFrontendAPIURL, cfg.Clerk.FrontendAPIURL)
+	}
+}
+
 func TestLoadFromEnvRejectsEnabledClerkWithoutSecretKey(t *testing.T) {
 	setValidWebEnv(t, filepath.Join(t.TempDir(), "uploads"))
 	t.Setenv("CLERK_ENABLED", "true")
@@ -170,6 +190,41 @@ func TestLoadFromEnvRejectsInvalidClerkJWKSURL(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "CLERK_JWKS_URL must be a valid URL") {
 		t.Fatalf("expected actionable clerk jwks url error, got: %v", err)
+	}
+}
+
+func TestLoadFromEnvRejectsInvalidClerkProxyURL(t *testing.T) {
+	setValidWebEnv(t, filepath.Join(t.TempDir(), "uploads"))
+	t.Setenv("CLERK_ENABLED", "true")
+	t.Setenv("CLERK_SECRET_KEY", "sk_test_123")
+	t.Setenv("CLERK_AUTHORIZED_PARTIES", "http://localhost:4173")
+	t.Setenv("CLERK_PROXY_URL", "not-a-path")
+
+	_, err := LoadFromEnv()
+	if err == nil {
+		t.Fatal("expected error for invalid CLERK_PROXY_URL")
+	}
+
+	if !strings.Contains(err.Error(), "CLERK_PROXY_URL must be a rooted path or valid URL") {
+		t.Fatalf("expected actionable clerk proxy url error, got: %v", err)
+	}
+}
+
+func TestLoadFromEnvRejectsInvalidClerkFrontendAPIURL(t *testing.T) {
+	setValidWebEnv(t, filepath.Join(t.TempDir(), "uploads"))
+	t.Setenv("CLERK_ENABLED", "true")
+	t.Setenv("CLERK_SECRET_KEY", "sk_test_123")
+	t.Setenv("CLERK_AUTHORIZED_PARTIES", "http://localhost:4173")
+	t.Setenv("CLERK_PROXY_URL", "/api/__clerk")
+	t.Setenv("CLERK_FRONTEND_API_URL", "://bad-url")
+
+	_, err := LoadFromEnv()
+	if err == nil {
+		t.Fatal("expected error for invalid CLERK_FRONTEND_API_URL")
+	}
+
+	if !strings.Contains(err.Error(), "CLERK_FRONTEND_API_URL must be a valid URL") {
+		t.Fatalf("expected actionable clerk frontend api url error, got: %v", err)
 	}
 }
 
@@ -520,4 +575,6 @@ func setValidWebEnv(t *testing.T, uploadDir string) {
 	t.Setenv("CLERK_SECRET_KEY", "")
 	t.Setenv("CLERK_AUTHORIZED_PARTIES", "")
 	t.Setenv("CLERK_JWKS_URL", "")
+	t.Setenv("CLERK_PROXY_URL", "")
+	t.Setenv("CLERK_FRONTEND_API_URL", "")
 }
