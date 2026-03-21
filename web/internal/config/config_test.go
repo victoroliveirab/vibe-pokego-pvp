@@ -129,7 +129,7 @@ func TestLoadFromEnvLoadsClerkProxyConfigWhenConfigured(t *testing.T) {
 	t.Setenv("CLERK_ENABLED", "true")
 	t.Setenv("CLERK_SECRET_KEY", "sk_test_123")
 	t.Setenv("CLERK_AUTHORIZED_PARTIES", "https://app.example.com")
-	t.Setenv("CLERK_PROXY_URL", "/api/__clerk")
+	t.Setenv("CLERK_PROXY_URL", "/api/__clerk/")
 
 	cfg, err := LoadFromEnv()
 	if err != nil {

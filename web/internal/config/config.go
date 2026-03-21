@@ -290,6 +290,8 @@ func normalizeClerkProxyConfig(clerkConfig *ClerkConfig) error {
 		return nil
 	}
 
+	clerkConfig.ProxyURL = normalizeClerkProxyURL(clerkConfig.ProxyURL)
+
 	if clerkConfig.ProxyURL != "" {
 		if err := validateClerkProxyURL(clerkConfig.ProxyURL); err != nil {
 			return err
@@ -307,6 +309,31 @@ func normalizeClerkProxyConfig(clerkConfig *ClerkConfig) error {
 	}
 
 	return nil
+}
+
+func normalizeClerkProxyURL(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(trimmed, "/") {
+		normalized := strings.TrimRight(trimmed, "/")
+		if normalized == "" {
+			return "/"
+		}
+		return normalized
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return trimmed
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/")
+	if parsed.Path == "" {
+		parsed.Path = "/"
+	}
+	return parsed.String()
 }
 
 func validateClerkProxyURL(value string) error {
