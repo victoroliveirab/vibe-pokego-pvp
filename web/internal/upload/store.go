@@ -34,6 +34,7 @@ type Store interface {
 	ListPokemonResults(ctx context.Context, ownerKey string) ([]PokemonResultRecord, error)
 	SoftDeletePokemonResult(ctx context.Context, resultID string, ownerKey string, now time.Time) error
 	ListPendingReadings(ctx context.Context, ownerKey string) ([]PendingSpeciesReadingRecord, error)
+	DismissPendingReading(ctx context.Context, params DismissPendingReadingParams) error
 	ResolvePendingReading(ctx context.Context, params ResolvePendingReadingParams) (PokemonResultRecord, error)
 }
 
@@ -1364,7 +1365,7 @@ WHERE id = ? AND session_id = ? AND status = ? AND locked = 0;`
 	result, err := tx.ExecContext(
 		ctx,
 		updatePendingReading,
-		"RESOLVED",
+		PendingReadingStatusResolved,
 		selectedSpeciesNameValue,
 		nowRaw,
 		readingID,
@@ -1497,6 +1498,114 @@ INSERT OR IGNORE INTO appraisal_result_pvp_eval_queue(
 		ExtractionConfidence: reading.ExtractionConfidence,
 		CreatedAt:            now,
 	}, nil
+}
+
+// DismissPendingReading finalizes one pending reading without creating an appraisal result.
+func (s *sqliteStore) DismissPendingReading(ctx context.Context, params DismissPendingReadingParams) error {
+	readingID := params.ReadingID
+	ownerKey := params.OwnerKey
+	if readingID == "" {
+		return fmt.Errorf("readingID is required")
+	}
+	if ownerKey == "" {
+		return fmt.Errorf("ownerKey is required")
+	}
+
+	now := params.Now.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	nowRaw := now.Format(time.RFC3339Nano)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin dismiss pending tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	const queryPendingReading = `
+SELECT r.locked, r.status, j.status
+FROM appraisal_pending_readings r
+JOIN jobs j ON j.id = r.job_id
+WHERE r.id = ? AND r.session_id = ?;`
+
+	var lockedRaw int
+	var readingStatus string
+	var jobStatus string
+	if err := tx.QueryRowContext(ctx, queryPendingReading, readingID, ownerKey).Scan(
+		&lockedRaw,
+		&readingStatus,
+		&jobStatus,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPendingReadingNotFound
+		}
+
+		return fmt.Errorf("query pending reading for dismiss: %w", err)
+	}
+
+	if lockedRaw == 1 || readingStatus != JobStatusPendingUserDedup || jobStatus != JobStatusPendingUserDedup {
+		return ErrPendingReadingLocked
+	}
+
+	const updatePendingReading = `
+UPDATE appraisal_pending_readings
+SET status = ?, locked = 1, selected_species_name = NULL, resolved_at = ?
+WHERE id = ? AND session_id = ? AND status = ? AND locked = 0;`
+
+	result, err := tx.ExecContext(
+		ctx,
+		updatePendingReading,
+		PendingReadingStatusDismissed,
+		nowRaw,
+		readingID,
+		ownerKey,
+		JobStatusPendingUserDedup,
+	)
+	if err != nil {
+		return fmt.Errorf("update pending reading dismiss state: %w", err)
+	}
+
+	updatedRows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read dismissed pending reading rows affected: %w", err)
+	}
+	if updatedRows != 1 {
+		return ErrPendingReadingLocked
+	}
+
+	const updateJobStatus = `
+UPDATE jobs
+SET status = ?, progress = 100, stage = NULL, error_code = NULL, error_message = NULL, updated_at = ?, finished_at = ?
+WHERE id = (SELECT job_id FROM appraisal_pending_readings WHERE id = ?) AND session_id = ? AND status = ?;`
+
+	result, err = tx.ExecContext(
+		ctx,
+		updateJobStatus,
+		JobStatusSucceeded,
+		nowRaw,
+		nowRaw,
+		readingID,
+		ownerKey,
+		JobStatusPendingUserDedup,
+	)
+	if err != nil {
+		return fmt.Errorf("update job status to succeeded from pending dismiss: %w", err)
+	}
+
+	updatedRows, err = result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read dismissed job rows affected: %w", err)
+	}
+	if updatedRows != 1 {
+		return ErrPendingReadingLocked
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit dismiss pending tx: %w", err)
+	}
+
+	return nil
 }
 
 func nullableInt64Value(value *int64) any {

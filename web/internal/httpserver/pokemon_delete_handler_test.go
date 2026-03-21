@@ -154,6 +154,10 @@ func (s *fakePokemonDeleteHandlerStore) ListPendingReadings(context.Context, str
 	return nil, errors.New("not implemented")
 }
 
+func (s *fakePokemonDeleteHandlerStore) DismissPendingReading(context.Context, upload.DismissPendingReadingParams) error {
+	return errors.New("not implemented")
+}
+
 func (s *fakePokemonDeleteHandlerStore) ResolvePendingReading(
 	context.Context,
 	upload.ResolvePendingReadingParams,

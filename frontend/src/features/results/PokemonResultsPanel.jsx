@@ -314,23 +314,38 @@ function formatPendingOptionHint(option) {
   return `${mode}, distance ${distance}, rank ${rank}`;
 }
 
-function PendingReadingCard({ isDebugMode, onResolvePendingOption, reading, resolving }) {
+function PendingReadingCard({ isDebugMode, onDismissPendingReading, onResolvePendingOption, reading, resolving }) {
   return (
     <article className="rounded-xl border border-amber-700/70 bg-amber-950/40 p-4">
-      <h3 className="text-sm font-semibold text-amber-100">{isDebugMode ? `Reading ${reading.id}` : "Reading"}</h3>
-      {isDebugMode ? (
-        <p className="mt-1 text-xs text-amber-200/90">
-          Job {reading.jobId} | Upload {reading.uploadId}
-        </p>
-      ) : null}
-      <p className="mt-1 text-xs text-amber-200/90">
-        CP {reading.cp} | HP {reading.hp} | IVs {formatIVs(reading.ivs)}
-      </p>
-      <p className="mt-1 text-xs text-amber-200/90">
-        Level {formatLevel(reading.level)} | Source {formatSourceType(reading.source?.type)} | Frame{" "}
-        {typeof reading.source?.frameTimestampMs === "number" ? `${reading.source.frameTimestampMs} ms` : "N/A"}
-      </p>
-      <p className="mt-1 text-xs text-amber-200/90">Status {reading.status}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-amber-100">{isDebugMode ? `Reading ${reading.id}` : "Reading"}</h3>
+          {isDebugMode ? (
+            <p className="mt-1 text-xs text-amber-200/90">
+              Job {reading.jobId} | Upload {reading.uploadId}
+            </p>
+          ) : null}
+          <p className="mt-1 text-xs text-amber-200/90">
+            CP {reading.cp} | HP {reading.hp} | IVs {formatIVs(reading.ivs)}
+          </p>
+          <p className="mt-1 text-xs text-amber-200/90">
+            Level {formatLevel(reading.level)} | Source {formatSourceType(reading.source?.type)} | Frame{" "}
+            {typeof reading.source?.frameTimestampMs === "number" ? `${reading.source.frameTimestampMs} ms` : "N/A"}
+          </p>
+          <p className="mt-1 text-xs text-amber-200/90">Status {reading.status}</p>
+        </div>
+        <button
+          aria-label={`Dismiss pending reading ${reading.id}`}
+          className="min-h-10 rounded-lg border border-amber-300/40 px-3 py-2 text-xs font-semibold text-amber-100 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={resolving}
+          onClick={() => {
+            onDismissPendingReading(reading.id);
+          }}
+          type="button"
+        >
+          {resolving ? "Working..." : "Dismiss"}
+        </button>
+      </div>
 
       <div className="mt-3 space-y-2">
         {Array.isArray(reading.options)
@@ -543,6 +558,7 @@ export default function PokemonResultsPanel({
   lastFetchedAt,
   onCancelDeleteResult = () => { },
   onConfirmDeleteResult = () => { },
+  onDismissPendingReading = () => { },
   onRequestDeleteResult = () => { },
   onRetry,
   onResolvePendingOption = () => { },
@@ -615,6 +631,7 @@ export default function PokemonResultsPanel({
               <PendingReadingCard
                 isDebugMode={isDebugMode}
                 key={reading.id}
+                onDismissPendingReading={onDismissPendingReading}
                 onResolvePendingOption={onResolvePendingOption}
                 reading={reading}
                 resolving={resolvingReadingIDSet.has(reading.id)}

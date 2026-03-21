@@ -246,6 +246,94 @@ func TestPokemonPendingSpeciesResolveIntegrationFinalizesReadingAndRejectsRereso
 	}
 }
 
+func TestPokemonPendingSpeciesDismissIntegrationFinalizesReadingWithoutResult(t *testing.T) {
+	env := newJobStatusIntegrationEnv(t)
+	sessionID := createSessionViaHTTP(t, env.client, env.server.URL)
+	created := createUploadAndJobViaHTTP(t, env, sessionID)
+	pendingAt := time.Date(2026, time.March, 6, 17, 30, 0, 0, time.UTC)
+	finishedAt := pendingAt
+	setJobLifecycleState(
+		t,
+		env.dbPath,
+		created.JobID,
+		upload.JobStatusPendingUserDedup,
+		100,
+		nil,
+		pendingAt,
+		&finishedAt,
+		nil,
+		nil,
+	)
+
+	reading := seededPendingReadingRow{
+		ID:               "reading-dismiss",
+		JobID:            created.JobID,
+		UploadID:         created.UploadID,
+		SessionID:        sessionID,
+		CP:               712,
+		HP:               120,
+		IVAttack:         10,
+		IVDefense:        11,
+		IVStamina:        12,
+		LevelMethod:      "ARC_POSITION",
+		SourceType:       "VIDEO",
+		Status:           upload.JobStatusPendingUserDedup,
+		Locked:           false,
+		CreatedAt:        pendingAt,
+		FrameTimestampMS: int64Ptr(900),
+	}
+	insertIntegrationPendingReadingRow(t, env.dbPath, reading)
+	insertIntegrationPendingOptionRow(t, env.dbPath, seededPendingOptionRow{
+		ID:               "option-dismiss-1",
+		PendingReadingID: reading.ID,
+		SpeciesName:      "Darumaka",
+		MatchMode:        "exact",
+		MatchDistance:    0,
+		OptionRank:       1,
+		CreatedAt:        pendingAt,
+	})
+
+	dismissResp := sendPendingResolveRequest(
+		t,
+		env.client,
+		http.MethodDelete,
+		env.server.URL+"/pokemon/pending-species/"+reading.ID,
+		sessionID,
+		"",
+	)
+	defer dismissResp.Body.Close()
+
+	if dismissResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, dismissResp.StatusCode)
+	}
+
+	status := readIntegrationPendingReadingStatus(t, env.dbPath, reading.ID)
+	if status.Status != upload.PendingReadingStatusDismissed || status.Locked != 1 || status.SelectedSpeciesName.Valid {
+		t.Fatalf("expected dismissed+locked pending reading, got %#v", status)
+	}
+
+	jobSnapshot := readIntegrationJobSnapshot(t, env.dbPath, created.JobID)
+	if jobSnapshot.Status != upload.JobStatusSucceeded {
+		t.Fatalf("expected job status %q, got %q", upload.JobStatusSucceeded, jobSnapshot.Status)
+	}
+	if !jobSnapshot.FinishedAt.Valid {
+		t.Fatalf("expected finished_at to be set after dismiss")
+	}
+
+	db := openIntegrationDB(t, env.dbPath)
+	var resultsCount int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM appraisal_results WHERE session_id = ? AND job_id = ?;`,
+		sessionID,
+		created.JobID,
+	).Scan(&resultsCount); err != nil {
+		t.Fatalf("expected appraisal result count query to succeed, got %v", err)
+	}
+	if resultsCount != 0 {
+		t.Fatalf("expected no appraisal result rows after dismiss, got %d", resultsCount)
+	}
+}
+
 type seededPendingReadingRow struct {
 	ID                   string
 	JobID                string

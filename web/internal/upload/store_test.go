@@ -1701,8 +1701,8 @@ func TestResolvePendingReadingFinalizesResultAndLocksReading(t *testing.T) {
 	).Scan(&status, &locked, &selectedSpecies); err != nil {
 		t.Fatalf("expected pending reading query to succeed, got: %v", err)
 	}
-	if status != "RESOLVED" {
-		t.Fatalf("expected pending reading status RESOLVED, got %q", status)
+	if status != PendingReadingStatusResolved {
+		t.Fatalf("expected pending reading status %q, got %q", PendingReadingStatusResolved, status)
 	}
 	if locked != 1 {
 		t.Fatalf("expected pending reading locked=1, got %d", locked)
@@ -1756,7 +1756,7 @@ func TestResolvePendingReadingReturnsLockedForAlreadyResolvedReading(t *testing.
 		IVStamina:           12,
 		LevelMethod:         "UNKNOWN",
 		SourceType:          "IMAGE",
-		Status:              "RESOLVED",
+		Status:              PendingReadingStatusResolved,
 		Locked:              true,
 		SelectedSpeciesName: &selectedSpecies,
 		ResolvedAt: func() *time.Time {
@@ -1782,6 +1782,150 @@ func TestResolvePendingReadingReturnsLockedForAlreadyResolvedReading(t *testing.
 		Now:       now.Add(time.Minute),
 	})
 	if !errors.Is(err, ErrPendingReadingLocked) {
+		t.Fatalf("expected ErrPendingReadingLocked, got %v", err)
+	}
+}
+
+func TestDismissPendingReadingLocksReadingWithoutCreatingResult(t *testing.T) {
+	store, _ := newTestSQLiteStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.March, 6, 12, 15, 0, 0, time.UTC)
+	sessionID := "session-a"
+
+	seedUploadRow(t, store.db, "upload-a", sessionID, now)
+	seedJobRow(t, store.db, seededJobRow{
+		ID:        "job-a",
+		UploadID:  "upload-a",
+		SessionID: sessionID,
+		Status:    JobStatusPendingUserDedup,
+		Progress:  100,
+		CreatedAt: now,
+		UpdatedAt: now,
+		FinishedAt: func() *time.Time {
+			finished := now
+			return &finished
+		}(),
+	})
+	seedPendingReadingRow(t, store.db, seededPendingReadingRow{
+		ID:          "reading-a",
+		JobID:       "job-a",
+		UploadID:    "upload-a",
+		SessionID:   sessionID,
+		CP:          712,
+		HP:          120,
+		IVAttack:    10,
+		IVDefense:   11,
+		IVStamina:   12,
+		LevelMethod: "UNKNOWN",
+		SourceType:  "IMAGE",
+		Status:      JobStatusPendingUserDedup,
+		Locked:      false,
+		CreatedAt:   now,
+	})
+	seedPendingOptionRow(t, store.db, seededPendingOptionRow{
+		ID:               "option-a1",
+		PendingReadingID: "reading-a",
+		SpeciesName:      "Darumaka",
+		MatchMode:        "exact",
+		MatchDistance:    0,
+		OptionRank:       1,
+		CreatedAt:        now,
+	})
+
+	if err := store.DismissPendingReading(ctx, DismissPendingReadingParams{
+		ReadingID: "reading-a",
+		OwnerKey:  sessionID,
+		Now:       now.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("expected dismiss to succeed, got %v", err)
+	}
+
+	var status string
+	var locked int
+	var selectedSpecies sql.NullString
+	if err := store.db.QueryRowContext(
+		ctx,
+		`SELECT status, locked, selected_species_name FROM appraisal_pending_readings WHERE id = ?;`,
+		"reading-a",
+	).Scan(&status, &locked, &selectedSpecies); err != nil {
+		t.Fatalf("expected pending reading query to succeed, got: %v", err)
+	}
+	if status != PendingReadingStatusDismissed {
+		t.Fatalf("expected pending reading status %q, got %q", PendingReadingStatusDismissed, status)
+	}
+	if locked != 1 {
+		t.Fatalf("expected pending reading locked=1, got %d", locked)
+	}
+	if selectedSpecies.Valid {
+		t.Fatalf("expected selected species to be cleared, got %#v", selectedSpecies)
+	}
+
+	var jobStatus string
+	if err := store.db.QueryRowContext(ctx, `SELECT status FROM jobs WHERE id = ?;`, "job-a").Scan(&jobStatus); err != nil {
+		t.Fatalf("expected job status query to succeed, got: %v", err)
+	}
+	if jobStatus != JobStatusSucceeded {
+		t.Fatalf("expected job status %q, got %q", JobStatusSucceeded, jobStatus)
+	}
+
+	assertRowCount(t, store.db, "appraisal_results", "job_id", "job-a", 0)
+	assertRowCount(t, store.db, "appraisal_result_pvp_eval_queue", "appraisal_result_id", "reading-a", 0)
+}
+
+func TestDismissPendingReadingReturnsNotFoundAndLockedErrors(t *testing.T) {
+	store, _ := newTestSQLiteStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.March, 6, 12, 45, 0, 0, time.UTC)
+	sessionID := "session-a"
+
+	seedUploadRow(t, store.db, "upload-a", sessionID, now)
+	seedJobRow(t, store.db, seededJobRow{
+		ID:        "job-a",
+		UploadID:  "upload-a",
+		SessionID: sessionID,
+		Status:    JobStatusSucceeded,
+		Progress:  100,
+		CreatedAt: now,
+		UpdatedAt: now,
+		FinishedAt: func() *time.Time {
+			finished := now
+			return &finished
+		}(),
+	})
+	seedPendingReadingRow(t, store.db, seededPendingReadingRow{
+		ID:          "reading-a",
+		JobID:       "job-a",
+		UploadID:    "upload-a",
+		SessionID:   sessionID,
+		CP:          712,
+		HP:          120,
+		IVAttack:    10,
+		IVDefense:   11,
+		IVStamina:   12,
+		LevelMethod: "UNKNOWN",
+		SourceType:  "IMAGE",
+		Status:      PendingReadingStatusDismissed,
+		Locked:      true,
+		CreatedAt:   now,
+		ResolvedAt: func() *time.Time {
+			resolved := now
+			return &resolved
+		}(),
+	})
+
+	if err := store.DismissPendingReading(ctx, DismissPendingReadingParams{
+		ReadingID: "reading-missing",
+		OwnerKey:  sessionID,
+		Now:       now,
+	}); !errors.Is(err, ErrPendingReadingNotFound) {
+		t.Fatalf("expected ErrPendingReadingNotFound, got %v", err)
+	}
+
+	if err := store.DismissPendingReading(ctx, DismissPendingReadingParams{
+		ReadingID: "reading-a",
+		OwnerKey:  sessionID,
+		Now:       now.Add(time.Minute),
+	}); !errors.Is(err, ErrPendingReadingLocked) {
 		t.Fatalf("expected ErrPendingReadingLocked, got %v", err)
 	}
 }

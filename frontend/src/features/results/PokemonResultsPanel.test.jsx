@@ -594,6 +594,21 @@ describe("pokemon results panel", () => {
     expect(onResolvePendingOption).toHaveBeenCalledWith("reading-1", "option-1");
   });
 
+  it("renders dismiss action for pending readings", () => {
+    const onDismissPendingReading = vi.fn();
+    render(
+      <PokemonResultsPanel
+        {...createProps({
+          onDismissPendingReading,
+          pendingReadings: [createPendingReading()],
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss pending reading reading-1" }));
+    expect(onDismissPendingReading).toHaveBeenCalledWith("reading-1");
+  });
+
   it("opens delete confirmation flow for accepted results", () => {
     const onRequestDeleteResult = vi.fn();
     render(

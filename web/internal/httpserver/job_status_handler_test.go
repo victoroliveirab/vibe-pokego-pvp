@@ -321,6 +321,10 @@ func (s *fakeJobStatusHandlerStore) SoftDeletePokemonResult(context.Context, str
 	return errors.New("not implemented")
 }
 
+func (s *fakeJobStatusHandlerStore) DismissPendingReading(context.Context, upload.DismissPendingReadingParams) error {
+	return errors.New("not implemented")
+}
+
 func (s *fakeJobStatusHandlerStore) ResolvePendingReading(
 	context.Context,
 	upload.ResolvePendingReadingParams,

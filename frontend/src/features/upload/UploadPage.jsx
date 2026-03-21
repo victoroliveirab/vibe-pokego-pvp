@@ -552,6 +552,50 @@ export default function UploadPage({
     [pokemonResultsApi, refreshPokemonResults, state.sessionId],
   );
 
+  const handleDismissPendingReading = useCallback(
+    async (readingId) => {
+      const normalizedSessionID = typeof state.sessionId === "string" ? state.sessionId.trim() : "";
+      if (!normalizedSessionID) {
+        setPendingResolveError({
+          code: "INVALID_SESSION",
+          message: "Your session expired. We can try again.",
+          debugMessage: "Session id was missing when attempting pending species dismiss.",
+        });
+        return;
+      }
+
+      const normalizedReadingID = typeof readingId === "string" ? readingId.trim() : "";
+      if (!normalizedReadingID) {
+        setPendingResolveError({
+          code: "INVALID_REQUEST",
+          message: "Could not dismiss this pending species because the request was incomplete.",
+          debugMessage: "Missing readingId.",
+        });
+        return;
+      }
+
+      setPendingResolveError(null);
+      setResolvingReadingIds((current) =>
+        current.includes(normalizedReadingID) ? current : [...current, normalizedReadingID],
+      );
+
+      try {
+        await pokemonResultsApi.dismissPendingSpeciesReading({
+          sessionId: normalizedSessionID,
+          readingId: normalizedReadingID,
+        });
+        await refreshPokemonResults({
+          sessionId: normalizedSessionID,
+        });
+      } catch (error) {
+        setPendingResolveError(normalizePokemonResultsError(error));
+      } finally {
+        setResolvingReadingIds((current) => current.filter((id) => id !== normalizedReadingID));
+      }
+    },
+    [pokemonResultsApi, refreshPokemonResults, state.sessionId],
+  );
+
   const handleRequestDeleteResult = useCallback((result) => {
     const normalizedResultID = typeof result?.id === "string" ? result.id.trim() : "";
     const speciesName =
@@ -732,6 +776,7 @@ export default function UploadPage({
             lastFetchedAt={pokemonResultsState.lastFetchedAt}
             onCancelDeleteResult={handleCancelDeleteResult}
             onConfirmDeleteResult={handleConfirmDeleteResult}
+            onDismissPendingReading={handleDismissPendingReading}
             onRequestDeleteResult={handleRequestDeleteResult}
             onRetry={handlePokemonResultsRetry}
             onResolvePendingOption={handleResolvePendingOption}

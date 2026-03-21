@@ -86,8 +86,8 @@ type resolvePendingReadingRequest struct {
 }
 
 func (h *pokemonPendingSpeciesResolveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPatch {
-		w.Header().Set("Allow", http.MethodPatch)
+	if r.Method != http.MethodPatch && r.Method != http.MethodDelete {
+		w.Header().Set("Allow", "DELETE, PATCH")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -95,6 +95,30 @@ func (h *pokemonPendingSpeciesResolveHandler) ServeHTTP(w http.ResponseWriter, r
 	identity, ok := IdentityFromContext(r.Context())
 	if !ok {
 		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error", nil)
+		return
+	}
+
+	if r.Method == http.MethodDelete {
+		err := h.store.DismissPendingReading(r.Context(), upload.DismissPendingReadingParams{
+			ReadingID: r.PathValue("readingId"),
+			OwnerKey:  identity.OwnerKey(),
+			Now:       h.now(),
+		})
+		if err != nil {
+			if errors.Is(err, upload.ErrPendingReadingNotFound) {
+				writeAPIError(w, http.StatusNotFound, "READING_NOT_FOUND", "Pending reading not found", nil)
+				return
+			}
+			if errors.Is(err, upload.ErrPendingReadingLocked) {
+				writeAPIError(w, http.StatusConflict, "READING_LOCKED", "Pending reading already resolved", nil)
+				return
+			}
+
+			writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error", nil)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 

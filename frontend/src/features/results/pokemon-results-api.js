@@ -140,9 +140,16 @@ const defaultApiClient = createApiClient();
  */
 
 /**
+ * @typedef {object} DismissPendingSpeciesReadingOptions
+ * @property {string} [sessionId=""]
+ * @property {string} [readingId=""]
+ */
+
+/**
  * @typedef {object} PokemonResultsApi
  * @property {function(PokemonResultsRequestOptions=): Promise<PokemonResultsResponse>} getPokemonResults
  * @property {function(PokemonResultsRequestOptions=): Promise<PendingSpeciesReadingsResponse>} getPendingSpeciesReadings
+ * @property {function(DismissPendingSpeciesReadingOptions=): Promise<void>} dismissPendingSpeciesReading
  * @property {function(ResolvePendingSpeciesReadingOptions=): Promise<ResolvePendingSpeciesResponse>} resolvePendingSpeciesReading
  * @property {function(DeletePokemonResultOptions=): Promise<void>} deletePokemonResult
  */
@@ -548,6 +555,21 @@ export function createPokemonResultsApi({ apiClient = defaultApiClient } = {}) {
       });
 
       return normalizePendingReadingsResponse(payload);
+    },
+    /**
+     * Dismisses one pending species reading for the current session.
+     *
+     * @param {DismissPendingSpeciesReadingOptions} [options={}]
+     * @returns {Promise<void>}
+     * @throws {APIClientError}
+     */
+    async dismissPendingSpeciesReading({ sessionId = "", readingId = "" } = {}) {
+      const normalizedReadingID = normalizeRequiredString(readingId, "readingId", { readingId });
+      await apiClient.request(`/pokemon/pending-species/${encodeURIComponent(normalizedReadingID)}`, {
+        method: "DELETE",
+        requiresIdentity: true,
+        sessionId,
+      });
     },
     /**
      * Resolves a pending species reading using a selected option.

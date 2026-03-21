@@ -341,6 +341,27 @@ describe("pokemon results api", () => {
     );
   });
 
+  it("dismisses one pending reading", async () => {
+    const apiClient = {
+      request: vi.fn().mockResolvedValue(null),
+    };
+
+    const pokemonResultsApi = createPokemonResultsApi({ apiClient });
+    await pokemonResultsApi.dismissPendingSpeciesReading({
+      sessionId: "session-1",
+      readingId: "reading-1",
+    });
+
+    expect(apiClient.request).toHaveBeenCalledWith(
+      "/pokemon/pending-species/reading-1",
+      expect.objectContaining({
+        method: "DELETE",
+        requiresIdentity: true,
+        sessionId: "session-1",
+      }),
+    );
+  });
+
   it("soft deletes one accepted result", async () => {
     const apiClient = {
       request: vi.fn().mockResolvedValue(null),

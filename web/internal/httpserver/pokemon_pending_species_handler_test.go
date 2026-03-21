@@ -153,8 +153,90 @@ func TestPokemonPendingSpeciesResolveHandlerMethodNotAllowed(t *testing.T) {
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected status %d, got %d", http.StatusMethodNotAllowed, rec.Code)
 	}
-	if allow := rec.Header().Get("Allow"); allow != http.MethodPatch {
-		t.Fatalf("expected Allow %q, got %q", http.MethodPatch, allow)
+	if allow := rec.Header().Get("Allow"); allow != "DELETE, PATCH" {
+		t.Fatalf("expected Allow %q, got %q", "DELETE, PATCH", allow)
+	}
+}
+
+func TestPokemonPendingSpeciesDismissHandlerMapsDomainErrors(t *testing.T) {
+	now := time.Date(2026, time.March, 6, 13, 30, 0, 0, time.UTC)
+	testCases := []struct {
+		name           string
+		err            error
+		expectedStatus int
+		expectedCode   string
+	}{
+		{name: "reading not found", err: upload.ErrPendingReadingNotFound, expectedStatus: http.StatusNotFound, expectedCode: "READING_NOT_FOUND"},
+		{name: "reading locked", err: upload.ErrPendingReadingLocked, expectedStatus: http.StatusConflict, expectedCode: "READING_LOCKED"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := newPokemonPendingSpeciesResolveHandler(&fakePokemonPendingSpeciesStore{
+				dismissPendingFn: func(_ context.Context, params upload.DismissPendingReadingParams) error {
+					if params.ReadingID != "reading-1" || params.OwnerKey != "session-1" {
+						t.Fatalf("unexpected dismiss params: %#v", params)
+					}
+					if !params.Now.Equal(now) {
+						t.Fatalf("expected now %s, got %s", now, params.Now)
+					}
+					return tc.err
+				},
+			}, func() time.Time { return now })
+
+			req := newPokemonPendingSpeciesResolveHandlerRequest(
+				http.MethodDelete,
+				"/pokemon/pending-species/reading-1",
+				"reading-1",
+				"session-1",
+				"",
+			)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tc.expectedStatus {
+				t.Fatalf("expected status %d, got %d", tc.expectedStatus, rec.Code)
+			}
+			var payload APIError
+			if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+				t.Fatalf("expected API error payload, got: %v", err)
+			}
+			if payload.Error.Code != tc.expectedCode {
+				t.Fatalf("expected error code %q, got %q", tc.expectedCode, payload.Error.Code)
+			}
+		})
+	}
+}
+
+func TestPokemonPendingSpeciesDismissHandlerReturnsNoContent(t *testing.T) {
+	now := time.Date(2026, time.March, 6, 13, 35, 0, 0, time.UTC)
+	handler := newPokemonPendingSpeciesResolveHandler(&fakePokemonPendingSpeciesStore{
+		dismissPendingFn: func(_ context.Context, params upload.DismissPendingReadingParams) error {
+			if params.ReadingID != "reading-1" || params.OwnerKey != "session-1" {
+				t.Fatalf("unexpected dismiss params: %#v", params)
+			}
+			if !params.Now.Equal(now) {
+				t.Fatalf("expected now %s, got %s", now, params.Now)
+			}
+			return nil
+		},
+	}, func() time.Time { return now })
+
+	req := newPokemonPendingSpeciesResolveHandlerRequest(
+		http.MethodDelete,
+		"/pokemon/pending-species/reading-1",
+		"reading-1",
+		"session-1",
+		"",
+	)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("expected empty body, got %q", rec.Body.String())
 	}
 }
 
@@ -339,6 +421,7 @@ func TestPokemonPendingSpeciesResolveHandlerReturnsInternalErrorWhenStoreFails(t
 
 type fakePokemonPendingSpeciesStore struct {
 	listPendingFn    func(ctx context.Context, ownerKey string) ([]upload.PendingSpeciesReadingRecord, error)
+	dismissPendingFn func(ctx context.Context, params upload.DismissPendingReadingParams) error
 	resolvePendingFn func(ctx context.Context, params upload.ResolvePendingReadingParams) (upload.PokemonResultRecord, error)
 }
 
@@ -374,6 +457,16 @@ func (s *fakePokemonPendingSpeciesStore) ListPendingReadings(
 
 func (s *fakePokemonPendingSpeciesStore) SoftDeletePokemonResult(context.Context, string, string, time.Time) error {
 	return errors.New("not implemented")
+}
+
+func (s *fakePokemonPendingSpeciesStore) DismissPendingReading(
+	ctx context.Context,
+	params upload.DismissPendingReadingParams,
+) error {
+	if s.dismissPendingFn != nil {
+		return s.dismissPendingFn(ctx, params)
+	}
+	return nil
 }
 
 func (s *fakePokemonPendingSpeciesStore) ResolvePendingReading(

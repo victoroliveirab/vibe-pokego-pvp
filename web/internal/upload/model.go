@@ -17,6 +17,9 @@ const (
 	JobStatusSucceeded        = "SUCCEEDED"
 	JobStatusFailed           = "FAILED"
 	JobStatusPendingUserDedup = "PENDING_USER_DEDUP"
+
+	PendingReadingStatusResolved  = "RESOLVED"
+	PendingReadingStatusDismissed = "DISMISSED"
 )
 
 var ErrJobNotFound = errors.New("job not found")
@@ -151,6 +154,13 @@ type PendingSpeciesReadingRecord struct {
 type ResolvePendingReadingParams struct {
 	ReadingID string
 	OptionID  string
+	OwnerKey  string
+	Now       time.Time
+}
+
+// DismissPendingReadingParams carries the payload for dismissing one pending reading.
+type DismissPendingReadingParams struct {
+	ReadingID string
 	OwnerKey  string
 	Now       time.Time
 }
