@@ -110,10 +110,13 @@ jobs:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           BETTERSTACK_SOURCE_TOKEN: ${{ secrets.BETTERSTACK_SOURCE_TOKEN }}
           BETTERSTACK_INGESTING_HOST: ${{ secrets.BETTERSTACK_INGESTING_HOST }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          CLERK_AUTHORIZED_PARTIES: ${{ secrets.CLERK_AUTHORIZED_PARTIES }}
         run: |
           set -euo pipefail
           ssh -p "${SSH_PORT}" "${SSH_USER}@${SSH_HOST}" \
-            "DEPLOY_PATH='${DEPLOY_PATH}' BETTERSTACK_SOURCE_TOKEN='${BETTERSTACK_SOURCE_TOKEN}' BETTERSTACK_INGESTING_HOST='${BETTERSTACK_INGESTING_HOST}' bash -se" <<'EOF'
+            "DEPLOY_PATH='${DEPLOY_PATH}' BETTERSTACK_SOURCE_TOKEN='${BETTERSTACK_SOURCE_TOKEN}' BETTERSTACK_INGESTING_HOST='${BETTERSTACK_INGESTING_HOST}' VITE_CLERK_PUBLISHABLE_KEY='${VITE_CLERK_PUBLISHABLE_KEY}' CLERK_SECRET_KEY='${CLERK_SECRET_KEY}' CLERK_AUTHORIZED_PARTIES='${CLERK_AUTHORIZED_PARTIES}' bash -se" <<'EOF'
           set -euo pipefail
           cd "${DEPLOY_PATH}"
           test -f .env.production
@@ -122,6 +125,23 @@ jobs:
             docker compose -f docker-compose.prod.yml --env-file .env.production logs --no-color --tail=200 web worker frontend || true
           }
           trap 'dump_compose_diagnostics' ERR
+          set -a
+          # shellcheck disable=SC1091
+          source .env.production
+          set +a
+          require_ci_value() {
+            key="$1"
+            value="${!key:-}"
+            if [ -z "${value}" ]; then
+              echo "Missing required GitHub Actions secret: ${key}" >&2
+              exit 1
+            fi
+          }
+          require_ci_value "VITE_CLERK_PUBLISHABLE_KEY"
+          if [ "${CLERK_ENABLED:-false}" = "true" ]; then
+            require_ci_value "CLERK_SECRET_KEY"
+            require_ci_value "CLERK_AUTHORIZED_PARTIES"
+          fi
           ensure_env_var() {
             key="$1"
             value="$2"
@@ -133,6 +153,11 @@ jobs:
           }
           ensure_env_var "BETTERSTACK_SOURCE_TOKEN" "${BETTERSTACK_SOURCE_TOKEN}"
           ensure_env_var "BETTERSTACK_INGESTING_HOST" "${BETTERSTACK_INGESTING_HOST}"
+          ensure_env_var "VITE_CLERK_PUBLISHABLE_KEY" "${VITE_CLERK_PUBLISHABLE_KEY}"
+          if [ "${CLERK_ENABLED:-false}" = "true" ]; then
+            ensure_env_var "CLERK_SECRET_KEY" "${CLERK_SECRET_KEY}"
+            ensure_env_var "CLERK_AUTHORIZED_PARTIES" "${CLERK_AUTHORIZED_PARTIES}"
+          fi
           rm -f .env.production.bak
 
           set -a
@@ -173,6 +198,7 @@ jobs:
           require_nonempty WORKER_HEALTH_PORT
           require_nonempty WORKER_GAMEMASTER_PATH
           require_nonempty UPLOAD_STORAGE_MODE
+          require_nonempty VITE_CLERK_PUBLISHABLE_KEY
 
           is_positive_int "${WEB_PORT}" || { echo "WEB_PORT must be a positive integer" >&2; exit 1; }
           is_positive_int "${WORKER_POLL_INTERVAL_SECS}" || { echo "WORKER_POLL_INTERVAL_SECS must be a positive integer" >&2; exit 1; }
