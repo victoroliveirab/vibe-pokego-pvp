@@ -156,6 +156,7 @@ jobs:
           ensure_env_var "BETTERSTACK_SOURCE_TOKEN" "${BETTERSTACK_SOURCE_TOKEN}"
           ensure_env_var "BETTERSTACK_INGESTING_HOST" "${BETTERSTACK_INGESTING_HOST}"
           ensure_env_var "VITE_CLERK_PUBLISHABLE_KEY" "${VITE_CLERK_PUBLISHABLE_KEY}"
+          ensure_env_var "VITE_DEPLOYED_AT_ISO" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           if [ "${CLERK_ENABLED:-false}" = "true" ]; then
             ensure_env_var "CLERK_SECRET_KEY" "${CLERK_SECRET_KEY}"
             ensure_env_var "CLERK_AUTHORIZED_PARTIES" "${CLERK_AUTHORIZED_PARTIES}"
@@ -205,6 +206,7 @@ jobs:
           require_nonempty WORKER_GAMEMASTER_PATH
           require_nonempty UPLOAD_STORAGE_MODE
           require_nonempty VITE_CLERK_PUBLISHABLE_KEY
+          require_nonempty VITE_DEPLOYED_AT_ISO
 
           is_positive_int "${WEB_PORT}" || { echo "WEB_PORT must be a positive integer" >&2; exit 1; }
           is_positive_int "${WORKER_POLL_INTERVAL_SECS}" || { echo "WORKER_POLL_INTERVAL_SECS must be a positive integer" >&2; exit 1; }
