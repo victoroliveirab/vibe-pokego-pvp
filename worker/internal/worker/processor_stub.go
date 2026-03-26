@@ -30,15 +30,15 @@ func (p stubProcessor) Process(
 ) error {
 	steps := []struct {
 		stage    string
-		progress int
+		progress float64
 	}{
-		{stage: jobqueue.StageDownloadingMedia, progress: 6},
-		{stage: jobqueue.StagePostprocessing, progress: 88},
-		{stage: jobqueue.StagePersistingResults, progress: 96},
+		{stage: jobqueue.StageDownloadingMedia, progress: 3},
+		{stage: jobqueue.StagePostprocessing, progress: 95},
+		{stage: jobqueue.StagePersistingResults, progress: 95},
 	}
 
 	for _, step := range steps {
-		if err := reportProgress(step.stage, step.progress); err != nil {
+		if err := reportProgress(step.stage, step.progress, nil); err != nil {
 			return err
 		}
 

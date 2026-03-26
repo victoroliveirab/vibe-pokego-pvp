@@ -15,7 +15,7 @@ import (
 type Store interface {
 	Close() error
 	ClaimNextQueuedJob(ctx context.Context, workerID string, now time.Time) (ClaimedJob, bool, error)
-	UpdateJobProgress(ctx context.Context, jobID string, workerID string, stage string, progress int, now time.Time) (bool, error)
+	UpdateJobProgress(ctx context.Context, jobID string, workerID string, stage string, progress float64, progressDescription *string, now time.Time) (bool, error)
 	RefreshHeartbeat(ctx context.Context, jobID string, workerID string, now time.Time) (bool, error)
 	FailExpiredProcessingJobs(ctx context.Context, cutoff time.Time, now time.Time) (int64, error)
 	MarkJobSucceeded(ctx context.Context, jobID string, workerID string, now time.Time) (bool, error)
@@ -112,7 +112,7 @@ LIMIT 1;`,
 	result, err := tx.ExecContext(
 		ctx,
 		`UPDATE jobs
-SET status = ?, worker_id = ?, claimed_at = ?, heartbeat_at = ?, stage = ?, progress = ?, updated_at = ?
+SET status = ?, worker_id = ?, claimed_at = ?, heartbeat_at = ?, stage = ?, progress = ?, progress_description = NULL, updated_at = ?
 WHERE id = ? AND status = ?;`,
 		JobStatusProcessing,
 		workerID,
@@ -158,7 +158,8 @@ func (s *sqliteStore) UpdateJobProgress(
 	jobID string,
 	workerID string,
 	stage string,
-	progress int,
+	progress float64,
+	progressDescription *string,
 	now time.Time,
 ) (bool, error) {
 	if jobID == "" {
@@ -179,10 +180,11 @@ func (s *sqliteStore) UpdateJobProgress(
 	return rowsAffectedBool(s.db.ExecContext(
 		ctx,
 		`UPDATE jobs
-SET stage = ?, progress = ?, updated_at = ?
+SET stage = ?, progress = ?, progress_description = ?, updated_at = ?
 WHERE id = ? AND worker_id = ? AND status = ?;`,
 		stage,
 		progress,
+		nullableString(progressDescription),
 		timestamp,
 		jobID,
 		workerID,
@@ -225,7 +227,7 @@ func (s *sqliteStore) FailExpiredProcessingJobs(ctx context.Context, cutoff time
 	result, err := s.db.ExecContext(
 		ctx,
 		`UPDATE jobs
-SET status = ?, error_code = ?, error_message = ?, finished_at = ?, updated_at = ?
+SET status = ?, progress = 100, progress_description = NULL, error_code = ?, error_message = ?, finished_at = ?, updated_at = ?
 WHERE status = ? AND heartbeat_at IS NOT NULL AND heartbeat_at < ?;`,
 		JobStatusFailed,
 		ErrorCodeWorkerTimeout,
@@ -260,7 +262,7 @@ func (s *sqliteStore) MarkJobSucceeded(ctx context.Context, jobID string, worker
 	return rowsAffectedBool(s.db.ExecContext(
 		ctx,
 		`UPDATE jobs
-SET status = ?, progress = 100, stage = NULL, error_code = NULL, error_message = NULL, finished_at = ?, updated_at = ?
+SET status = ?, progress = 100, stage = NULL, progress_description = NULL, error_code = NULL, error_message = NULL, finished_at = ?, updated_at = ?
 WHERE id = ? AND worker_id = ? AND status = ?;`,
 		JobStatusSucceeded,
 		timestamp,
@@ -289,7 +291,7 @@ func (s *sqliteStore) MarkJobPendingUserDedup(
 	return rowsAffectedBool(s.db.ExecContext(
 		ctx,
 		`UPDATE jobs
-SET status = ?, progress = 100, stage = NULL, error_code = NULL, error_message = NULL, finished_at = ?, updated_at = ?
+SET status = ?, progress = 100, stage = NULL, progress_description = NULL, error_code = NULL, error_message = NULL, finished_at = ?, updated_at = ?
 WHERE id = ? AND worker_id = ? AND status = ?;`,
 		JobStatusPendingUserDedup,
 		timestamp,
@@ -326,7 +328,7 @@ func (s *sqliteStore) MarkJobFailed(
 	return rowsAffectedBool(s.db.ExecContext(
 		ctx,
 		`UPDATE jobs
-SET status = ?, error_code = ?, error_message = ?, finished_at = ?, updated_at = ?
+SET status = ?, progress = 100, progress_description = NULL, error_code = ?, error_message = ?, finished_at = ?, updated_at = ?
 WHERE id = ? AND worker_id = ? AND status = ?;`,
 		JobStatusFailed,
 		code,
@@ -401,4 +403,12 @@ func applySQLiteBusyTimeout(db *sql.DB) error {
 	}
 	defer rows.Close()
 	return rows.Err()
+}
+
+func nullableString(value *string) any {
+	if value == nil {
+		return nil
+	}
+
+	return *value
 }

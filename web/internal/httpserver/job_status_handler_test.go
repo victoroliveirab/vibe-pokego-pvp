@@ -149,7 +149,7 @@ func TestJobStatusHandlerReturnsMappedPayloadForQueuedFailedAndPendingUserDedup(
 				t.Fatalf("expected status %q, got %q", tc.record.Status, payload.Status)
 			}
 			if payload.Progress != tc.record.Progress {
-				t.Fatalf("expected progress %d, got %d", tc.record.Progress, payload.Progress)
+				t.Fatalf("expected progress %v, got %v", tc.record.Progress, payload.Progress)
 			}
 			assertOptionalStringPtrEqual(t, tc.expectedStage, payload.Stage, "stage")
 			assertOptionalStringPtrEqual(t, tc.expectedFinished, payload.FinishedAt, "finishedAt")
@@ -333,15 +333,16 @@ func (s *fakeJobStatusHandlerStore) ResolvePendingReading(
 }
 
 type jobStatusHandlerResponse struct {
-	JobID      string                 `json:"jobId"`
-	UploadID   string                 `json:"uploadId"`
-	Status     string                 `json:"status"`
-	Progress   int                    `json:"progress"`
-	Stage      *string                `json:"stage"`
-	CreatedAt  string                 `json:"createdAt"`
-	UpdatedAt  string                 `json:"updatedAt"`
-	FinishedAt *string                `json:"finishedAt"`
-	Error      *jobStatusHandlerError `json:"error"`
+	JobID               string                 `json:"jobId"`
+	UploadID            string                 `json:"uploadId"`
+	Status              string                 `json:"status"`
+	Progress            float64                `json:"progress"`
+	Stage               *string                `json:"stage"`
+	ProgressDescription *string                `json:"progressDescription"`
+	CreatedAt           string                 `json:"createdAt"`
+	UpdatedAt           string                 `json:"updatedAt"`
+	FinishedAt          *string                `json:"finishedAt"`
+	Error               *jobStatusHandlerError `json:"error"`
 }
 
 type jobStatusHandlerError struct {

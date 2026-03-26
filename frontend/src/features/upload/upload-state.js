@@ -25,6 +25,7 @@
  * @property {string} [status]
  * @property {string|null} [stage]
  * @property {number} [progress]
+ * @property {string|null} [progressDescription]
  * @property {string|null} [finishedAt]
  * @property {UploadLifecycleError|UnknownRecord|Error|null} [error]
  */
@@ -34,6 +35,7 @@
  * @property {string} jobStatus
  * @property {string} jobStage
  * @property {number} jobProgress
+ * @property {string} jobProgressDescription
  * @property {UploadLifecycleError|null} jobError
  * @property {string} finishedAt
  * @property {string} lastPolledAt
@@ -83,9 +85,10 @@ export const uploadFlowPhases = {
 /** @type {JobLifecycleState} */
 export const initialJobLifecycleState = {
   jobStatus: "",
-  jobStage: "",
-  jobProgress: 0,
-  jobError: null,
+ jobStage: "",
+ jobProgress: 0,
+  jobProgressDescription: "",
+ jobError: null,
   finishedAt: "",
   lastPolledAt: "",
 };
@@ -146,6 +149,7 @@ function applyJobSnapshot(state, action) {
     jobStatus: typeof job.status === "string" ? job.status : "",
     jobStage: typeof job.stage === "string" ? job.stage : "",
     jobProgress: typeof job.progress === "number" && !Number.isNaN(job.progress) ? job.progress : 0,
+    jobProgressDescription: typeof job.progressDescription === "string" ? job.progressDescription : "",
     jobError: normalizeJobLifecycleError(job.error),
     finishedAt: typeof job.finishedAt === "string" ? job.finishedAt : "",
     lastPolledAt: typeof action.polledAt === "string" ? action.polledAt : state.lastPolledAt,

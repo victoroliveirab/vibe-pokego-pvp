@@ -155,8 +155,9 @@ CREATE TABLE IF NOT EXISTS jobs (
 	session_id TEXT NOT NULL,
 	parent_job_id TEXT NULL,
 	status TEXT NOT NULL,
-	progress INTEGER NOT NULL,
+	progress REAL NOT NULL,
 	stage TEXT NULL,
+	progress_description TEXT NULL,
 	worker_id TEXT NULL,
 	claimed_at TEXT NULL,
 	heartbeat_at TEXT NULL,
@@ -383,6 +384,16 @@ CREATE INDEX IF NOT EXISTS idx_job_debug_frames_job_id_created_at ON job_debug_f
 	if err := ensureSQLiteColumnExists(
 		ctx,
 		s.db,
+		"jobs",
+		"progress_description",
+		"ALTER TABLE jobs ADD COLUMN progress_description TEXT NULL;",
+	); err != nil {
+		return fmt.Errorf("ensure jobs.progress_description column: %w", err)
+	}
+
+	if err := ensureSQLiteColumnExists(
+		ctx,
+		s.db,
 		"appraisal_results",
 		"deleted_at",
 		"ALTER TABLE appraisal_results ADD COLUMN deleted_at TEXT NULL;",
@@ -495,10 +506,10 @@ VALUES (?, ?, ?, ?, ?, ?, ?);`
 
 	const insertJob = `
 INSERT INTO jobs(
-	id, upload_id, session_id, parent_job_id, status, progress, stage,
+	id, upload_id, session_id, parent_job_id, status, progress, stage, progress_description,
 	worker_id, claimed_at, heartbeat_at, error_code, error_message,
 	created_at, updated_at, finished_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
 
 	if _, err := tx.ExecContext(
 		ctx,
@@ -509,6 +520,7 @@ INSERT INTO jobs(
 		nil,
 		JobStatusQueued,
 		0,
+		nil,
 		nil,
 		nil,
 		nil,
@@ -584,10 +596,10 @@ WHERE id = ? AND session_id = ?;`
 
 	const insertRetryJob = `
 INSERT INTO jobs(
-	id, upload_id, session_id, parent_job_id, status, progress, stage,
+	id, upload_id, session_id, parent_job_id, status, progress, stage, progress_description,
 	worker_id, claimed_at, heartbeat_at, error_code, error_message,
 	created_at, updated_at, finished_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
 
 	if _, err := tx.ExecContext(
 		ctx,
@@ -598,6 +610,7 @@ INSERT INTO jobs(
 		parentJobID,
 		JobStatusQueued,
 		0,
+		nil,
 		nil,
 		nil,
 		nil,
@@ -630,12 +643,13 @@ INSERT INTO jobs(
 func (s *sqliteStore) GetJobStatus(ctx context.Context, jobID string, ownerKey string) (JobStatusRecord, error) {
 	const query = `
 SELECT id, upload_id, session_id, status, progress, stage,
-       created_at, updated_at, finished_at, error_code, error_message
+       progress_description, created_at, updated_at, finished_at, error_code, error_message
 FROM jobs
 WHERE id = ? AND session_id = ?;`
 
 	var record JobStatusRecord
 	var stage sql.NullString
+	var progressDescription sql.NullString
 	var createdAtRaw string
 	var updatedAtRaw string
 	var finishedAtRaw sql.NullString
@@ -649,6 +663,7 @@ WHERE id = ? AND session_id = ?;`
 		&record.Status,
 		&record.Progress,
 		&stage,
+		&progressDescription,
 		&createdAtRaw,
 		&updatedAtRaw,
 		&finishedAtRaw,
@@ -672,6 +687,7 @@ WHERE id = ? AND session_id = ?;`
 	}
 
 	record.Stage = nullableString(stage)
+	record.ProgressDescription = nullableString(progressDescription)
 	record.CreatedAt = createdAt
 	record.UpdatedAt = updatedAt
 
@@ -692,7 +708,7 @@ WHERE id = ? AND session_id = ?;`
 func (s *sqliteStore) GetActiveJobStatus(ctx context.Context, ownerKey string) (JobStatusRecord, error) {
 	const query = `
 SELECT id, upload_id, session_id, status, progress, stage,
-       created_at, updated_at, finished_at, error_code, error_message
+       progress_description, created_at, updated_at, finished_at, error_code, error_message
 FROM jobs
 WHERE session_id = ?
   AND status IN (?, ?)
@@ -701,6 +717,7 @@ LIMIT 1;`
 
 	var record JobStatusRecord
 	var stage sql.NullString
+	var progressDescription sql.NullString
 	var createdAtRaw string
 	var updatedAtRaw string
 	var finishedAtRaw sql.NullString
@@ -720,6 +737,7 @@ LIMIT 1;`
 		&record.Status,
 		&record.Progress,
 		&stage,
+		&progressDescription,
 		&createdAtRaw,
 		&updatedAtRaw,
 		&finishedAtRaw,
@@ -743,6 +761,7 @@ LIMIT 1;`
 	}
 
 	record.Stage = nullableString(stage)
+	record.ProgressDescription = nullableString(progressDescription)
 	record.CreatedAt = createdAt
 	record.UpdatedAt = updatedAt
 
@@ -1592,7 +1611,7 @@ WHERE job_id = ? AND session_id = ? AND status = ? AND locked = 0;`
 
 	const updateJobStatus = `
 UPDATE jobs
-SET status = ?, progress = 100, stage = NULL, error_code = NULL, error_message = NULL, updated_at = ?,
+SET status = ?, progress = 100, stage = NULL, progress_description = NULL, error_code = NULL, error_message = NULL, updated_at = ?,
     finished_at = CASE WHEN finished_at IS NULL THEN ? ELSE finished_at END
 WHERE id = ? AND session_id = ?;`
 

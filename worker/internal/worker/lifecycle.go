@@ -59,8 +59,8 @@ func runClaimedJobLifecycle(
 		}
 	}()
 
-	reportProgress := func(stage string, progress int) error {
-		ok, err := queue.UpdateJobProgress(ctx, job.ID, workerID, stage, progress, nowFn())
+	reportProgress := func(stage string, progress float64, progressDescription *string) error {
+		ok, err := queue.UpdateJobProgress(ctx, job.ID, workerID, stage, progress, progressDescription, nowFn())
 		if err != nil {
 			return fmt.Errorf("update job progress: %w", err)
 		}
@@ -68,7 +68,7 @@ func runClaimedJobLifecycle(
 			return errOwnershipLost
 		}
 
-		logger.Info("job progress updated", "stage", stage, "progress", progress)
+		logger.Info("job progress updated", "stage", stage, "progress", progress, "progress_description", progressDescription)
 
 		return nil
 	}

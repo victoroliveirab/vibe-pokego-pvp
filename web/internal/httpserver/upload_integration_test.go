@@ -94,7 +94,7 @@ WHERE id = ?;`
 	var jobUploadID string
 	var jobSessionID string
 	var status string
-	var progress int
+	var progress float64
 	var stage sql.NullString
 	if err := db.QueryRow(jobQuery, payload.JobID).Scan(
 		&jobUploadID,
@@ -116,7 +116,7 @@ WHERE id = ?;`
 		t.Fatalf("expected job status %q, got %q", upload.JobStatusQueued, status)
 	}
 	if progress != 0 {
-		t.Fatalf("expected queued job progress 0, got %d", progress)
+		t.Fatalf("expected queued job progress 0, got %v", progress)
 	}
 	if stage.Valid {
 		t.Fatalf("expected queued job stage to be NULL, got %q", stage.String)

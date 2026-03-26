@@ -31,7 +31,7 @@ type ClaimedJob struct {
 	UploadID  string
 	SessionID string
 	Status    string
-	Progress  int
+	Progress  float64
 	Stage     string
 	WorkerID  string
 	ClaimedAt time.Time

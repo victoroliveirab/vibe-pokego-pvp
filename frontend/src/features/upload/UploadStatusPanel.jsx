@@ -29,7 +29,12 @@ function clampProgress(progress) {
     return 0;
   }
 
-  return Math.max(0, Math.min(100, Math.round(progress)));
+  return Math.max(0, Math.min(100, progress));
+}
+
+function formatProgress(progress) {
+  const normalized = clampProgress(progress);
+  return Number.isInteger(normalized) ? String(normalized) : normalized.toFixed(1);
 }
 
 function JobIdentity({ jobId, uploadId }) {
@@ -57,6 +62,7 @@ export default function UploadStatusPanel({
   jobError,
   jobId,
   jobProgress,
+  jobProgressDescription,
   jobStage,
   jobStatus,
   lastPolledAt,
@@ -96,6 +102,7 @@ export default function UploadStatusPanel({
   if (phase === uploadFlowPhases.SUCCESS) {
     const normalizedStatus = typeof jobStatus === "string" && jobStatus.trim().length > 0 ? jobStatus : "QUEUED";
     const progress = clampProgress(jobProgress);
+    const progressLabel = formatProgress(jobProgress);
     const stage = formatJobStage(jobStage);
     const hasJobError = jobError && (jobError.message || jobError.code);
 
@@ -111,7 +118,7 @@ export default function UploadStatusPanel({
           </p>
           {jobError && jobError.code ? <p className="mt-1 text-xs text-rose-100/80">Code: {jobError.code}</p> : null}
           <p className="mt-1 text-xs text-rose-100/80">Stage: {stage}</p>
-          <p className="mt-1 text-xs text-rose-100/80">Progress: {progress}%</p>
+          <p className="mt-1 text-xs text-rose-100/80">Progress: {progressLabel}%</p>
           {finishedAt ? <p className="mt-1 text-xs text-rose-100/80">Finished at: {finishedAt}</p> : null}
           {isDebugMode ? <JobIdentity jobId={jobId} uploadId={uploadId} /> : null}
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
@@ -190,7 +197,10 @@ export default function UploadStatusPanel({
             : "Appraisal extraction is currently running."}
         </p>
         <p className="mt-2 text-xs text-emerald-100/90">Stage: {stage}</p>
-        <p className="mt-1 text-xs text-emerald-100/90">Progress: {progress}%</p>
+        <p className="mt-1 text-xs text-emerald-100/90">Progress: {progressLabel}%</p>
+        {jobProgressDescription ? (
+          <p className="mt-1 text-xs text-emerald-100/80">Detail: {jobProgressDescription}</p>
+        ) : null}
         <div aria-label="Job progress" aria-valuemax={100} aria-valuemin={0} aria-valuenow={progress} className="mt-2 h-2 rounded-full bg-emerald-900/60" role="progressbar">
           <div className="h-full rounded-full bg-emerald-300 transition-[width]" style={{ width: `${progress}%` }} />
         </div>

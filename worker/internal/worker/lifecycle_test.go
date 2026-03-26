@@ -55,7 +55,7 @@ func TestRunClaimedJobLifecycleInvokesProcessorAndMarksSuccess(t *testing.T) {
 	store := &fakeQueueStore{}
 	logger := slog.New(slog.NewTextHandler(testWriter{t: t}, nil))
 	processor := processorFunc(func(ctx context.Context, job jobqueue.ClaimedJob, report ProgressReporter) error {
-		if err := report(jobqueue.StageDecodingImage, 22); err != nil {
+		if err := report(jobqueue.StageDecodingImage, 22, nil); err != nil {
 			return err
 		}
 		return nil
@@ -91,7 +91,7 @@ func TestRunClaimedJobLifecycleMarksPendingUserDedup(t *testing.T) {
 	store := &fakeQueueStore{}
 	logger := slog.New(slog.NewTextHandler(testWriter{t: t}, nil))
 	processor := processorFunc(func(ctx context.Context, job jobqueue.ClaimedJob, report ProgressReporter) error {
-		if err := report(jobqueue.StagePersistingResults, 96); err != nil {
+		if err := report(jobqueue.StagePersistingResults, 95, nil); err != nil {
 			return err
 		}
 		return pendingUserDedupSignal{}
@@ -137,7 +137,7 @@ func (f *fakeQueueStore) ClaimNextQueuedJob(context.Context, string, time.Time) 
 	return jobqueue.ClaimedJob{}, false, nil
 }
 
-func (f *fakeQueueStore) UpdateJobProgress(context.Context, string, string, string, int, time.Time) (bool, error) {
+func (f *fakeQueueStore) UpdateJobProgress(context.Context, string, string, string, float64, *string, time.Time) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.progressUpdates++

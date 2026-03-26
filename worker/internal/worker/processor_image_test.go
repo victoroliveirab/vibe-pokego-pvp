@@ -118,8 +118,9 @@ func TestImageProcessorReportsStagesAndPersistsSpeciesCandidate(t *testing.T) {
 	)
 
 	type progressUpdate struct {
-		stage    string
-		progress int
+		stage       string
+		progress    float64
+		description *string
 	}
 	var updates []progressUpdate
 
@@ -130,8 +131,8 @@ func TestImageProcessorReportsStagesAndPersistsSpeciesCandidate(t *testing.T) {
 			UploadID:  "upload-image-1",
 			SessionID: "session-image-1",
 		},
-		func(stage string, progress int) error {
-			updates = append(updates, progressUpdate{stage: stage, progress: progress})
+		func(stage string, progress float64, progressDescription *string) error {
+			updates = append(updates, progressUpdate{stage: stage, progress: progress, description: progressDescription})
 			return nil
 		},
 	)
@@ -148,11 +149,11 @@ func TestImageProcessorReportsStagesAndPersistsSpeciesCandidate(t *testing.T) {
 	}
 
 	expected := []progressUpdate{
-		{stage: jobqueue.StageDownloadingMedia, progress: progressDownloadingMedia},
-		{stage: jobqueue.StageDecodingImage, progress: progressDecodingImage},
-		{stage: jobqueue.StageExtractingAppraisal, progress: progressExtractingAppraisal},
-		{stage: jobqueue.StagePostprocessing, progress: progressPostprocessing},
-		{stage: jobqueue.StagePersistingResults, progress: progressPersistingResults},
+		{stage: jobqueue.StageDownloadingMedia, progress: imageProgressDownloadingMedia},
+		{stage: jobqueue.StageDecodingImage, progress: imageProgressDecodingImage},
+		{stage: jobqueue.StageExtractingAppraisal, progress: imageProgressExtractingAppraisal},
+		{stage: jobqueue.StagePostprocessing, progress: imageProgressPostprocessing},
+		{stage: jobqueue.StagePersistingResults, progress: imageProgressPersistingResults},
 	}
 
 	if len(updates) != len(expected) {
@@ -160,8 +161,11 @@ func TestImageProcessorReportsStagesAndPersistsSpeciesCandidate(t *testing.T) {
 	}
 
 	for i := range expected {
-		if updates[i] != expected[i] {
+		if updates[i].stage != expected[i].stage || updates[i].progress != expected[i].progress {
 			t.Fatalf("expected update %d to be %#v, got %#v", i, expected[i], updates[i])
+		}
+		if derefStringPtr(updates[i].description) != derefStringPtr(expected[i].description) {
+			t.Fatalf("expected update %d description %q, got %q", i, derefStringPtr(expected[i].description), derefStringPtr(updates[i].description))
 		}
 	}
 
@@ -351,8 +355,9 @@ func TestImageProcessorVideoPathReportsStagesAndPersistsFrameTimestamps(t *testi
 	)
 
 	type progressUpdate struct {
-		stage    string
-		progress int
+		stage       string
+		progress    float64
+		description *string
 	}
 	var updates []progressUpdate
 
@@ -379,27 +384,36 @@ func TestImageProcessorVideoPathReportsStagesAndPersistsFrameTimestamps(t *testi
 			UploadID:  "upload-video-1",
 			SessionID: "session-video-1",
 		},
-		func(stage string, progress int) error {
-			updates = append(updates, progressUpdate{stage: stage, progress: progress})
+		func(stage string, progress float64, progressDescription *string) error {
+			updates = append(updates, progressUpdate{stage: stage, progress: progress, description: progressDescription})
 			return nil
 		},
 	)
 	assertNoAppraisalsProcessingError(t, err)
 
 	expected := []progressUpdate{
-		{stage: jobqueue.StageDownloadingMedia, progress: progressDownloadingMedia},
-		{stage: jobqueue.StageDecodingVideo, progress: progressDecodingVideo},
-		{stage: jobqueue.StageSamplingFrames, progress: progressSamplingFrames},
-		{stage: jobqueue.StageExtractingAppraisal, progress: progressExtractingAppraisal},
-		{stage: jobqueue.StagePostprocessing, progress: progressPostprocessing},
-		{stage: jobqueue.StagePersistingResults, progress: progressPersistingResults},
+		{stage: jobqueue.StageDownloadingMedia, progress: videoProgressDownloadingMedia},
+		{stage: jobqueue.StageDecodingVideo, progress: videoProgressDecoding},
+		{stage: jobqueue.StageSamplingFrames, progress: 16.25, description: progressDescriptionSampling(1, 4)},
+		{stage: jobqueue.StageSamplingFrames, progress: 27.5, description: progressDescriptionSampling(2, 4)},
+		{stage: jobqueue.StageSamplingFrames, progress: 38.75, description: progressDescriptionSampling(3, 4)},
+		{stage: jobqueue.StageSamplingFrames, progress: 50, description: progressDescriptionSampling(4, 4)},
+		{stage: jobqueue.StageExtractingAppraisal, progress: 61.25, description: progressDescriptionExtracting(1, 4)},
+		{stage: jobqueue.StageExtractingAppraisal, progress: 72.5, description: progressDescriptionExtracting(2, 4)},
+		{stage: jobqueue.StageExtractingAppraisal, progress: 83.75, description: progressDescriptionExtracting(3, 4)},
+		{stage: jobqueue.StageExtractingAppraisal, progress: 95, description: progressDescriptionExtracting(4, 4)},
+		{stage: jobqueue.StagePostprocessing, progress: videoProgressPostprocessing},
+		{stage: jobqueue.StagePersistingResults, progress: videoProgressPersisting},
 	}
 	if len(updates) != len(expected) {
 		t.Fatalf("expected %d progress updates, got %d", len(expected), len(updates))
 	}
 	for i := range expected {
-		if updates[i] != expected[i] {
+		if updates[i].stage != expected[i].stage || updates[i].progress != expected[i].progress {
 			t.Fatalf("expected update %d to be %#v, got %#v", i, expected[i], updates[i])
+		}
+		if derefStringPtr(updates[i].description) != derefStringPtr(expected[i].description) {
+			t.Fatalf("expected update %d description %q, got %q", i, derefStringPtr(expected[i].description), derefStringPtr(updates[i].description))
 		}
 	}
 
@@ -595,7 +609,7 @@ func TestImageProcessorVideoPathAllUnstableFramesPersistNoCandidates(t *testing.
 			UploadID:  "upload-video-all-unstable",
 			SessionID: "session-video-all-unstable",
 		},
-		func(string, int) error { return nil },
+		func(string, float64, *string) error { return nil },
 	)
 	assertNoAppraisalsProcessingError(t, err)
 
@@ -1033,7 +1047,7 @@ func TestImageProcessorRespectsContextCancellation(t *testing.T) {
 			UploadID:  "upload-image-2",
 			SessionID: "session-image-2",
 		},
-		func(string, int) error { return nil },
+		func(string, float64, *string) error { return nil },
 	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context cancellation, got %v", err)
@@ -2063,7 +2077,8 @@ CREATE TABLE IF NOT EXISTS jobs (
 	session_id TEXT NOT NULL,
 	parent_job_id TEXT NULL,
 	status TEXT NOT NULL,
-	progress INTEGER NOT NULL,
+	progress REAL NOT NULL,
+	progress_description TEXT NULL,
 	stage TEXT NULL,
 	worker_id TEXT NULL,
 	claimed_at TEXT NULL,
@@ -2337,6 +2352,14 @@ func assertStructuredMetaEntries(
 	}
 }
 
+func derefStringPtr(value *string) string {
+	if value == nil {
+		return ""
+	}
+
+	return *value
+}
+
 func seedUploadAndJob(
 	t *testing.T,
 	db *sql.DB,
@@ -2368,10 +2391,10 @@ VALUES (?, ?, ?, ?, ?, ?, ?);`
 
 	const insertJob = `
 INSERT INTO jobs(
-	id, upload_id, session_id, parent_job_id, status, progress, stage,
+	id, upload_id, session_id, parent_job_id, status, progress, stage, progress_description,
 	worker_id, claimed_at, heartbeat_at, error_code, error_message,
 	created_at, updated_at, finished_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
 	if _, err := db.ExecContext(
 		context.Background(),
 		insertJob,
@@ -2381,6 +2404,7 @@ INSERT INTO jobs(
 		nil,
 		jobqueue.JobStatusProcessing,
 		0,
+		nil,
 		nil,
 		nil,
 		nil,

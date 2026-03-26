@@ -41,7 +41,7 @@ func TestJobStatusIntegrationReturnsQueuedPayload(t *testing.T) {
 		t.Fatalf("expected status %q, got %q", upload.JobStatusQueued, payload.Status)
 	}
 	if payload.Progress != 0 {
-		t.Fatalf("expected progress 0, got %d", payload.Progress)
+		t.Fatalf("expected progress 0, got %v", payload.Progress)
 	}
 	if payload.Stage != nil {
 		t.Fatalf("expected stage to be null, got %q", *payload.Stage)
@@ -63,7 +63,7 @@ func TestJobStatusIntegrationReturnsProcessingPayload(t *testing.T) {
 
 	stage := "SAMPLING_FRAMES"
 	updatedAt := time.Date(2026, time.March, 4, 17, 20, 0, 0, time.UTC)
-	setJobLifecycleState(t, env.dbPath, created.JobID, upload.JobStatusProcessing, 42, &stage, updatedAt, nil, nil, nil)
+	setJobLifecycleState(t, env.dbPath, created.JobID, upload.JobStatusProcessing, 42, &stage, nil, updatedAt, nil, nil, nil)
 
 	resp := sendJobStatusRequest(t, env.client, http.MethodGet, env.server.URL+"/jobs/"+created.JobID, sessionID)
 	defer resp.Body.Close()
@@ -81,7 +81,7 @@ func TestJobStatusIntegrationReturnsProcessingPayload(t *testing.T) {
 		t.Fatalf("expected status %q, got %q", upload.JobStatusProcessing, payload.Status)
 	}
 	if payload.Progress != 42 {
-		t.Fatalf("expected progress 42, got %d", payload.Progress)
+		t.Fatalf("expected progress 42, got %v", payload.Progress)
 	}
 	if payload.Stage == nil || *payload.Stage != stage {
 		t.Fatalf("expected stage %q, got %#v", stage, payload.Stage)
@@ -101,7 +101,7 @@ func TestJobStatusIntegrationReturnsVideoDecodingProcessingPayload(t *testing.T)
 
 	stage := "DECODING_VIDEO"
 	updatedAt := time.Date(2026, time.March, 4, 17, 25, 0, 0, time.UTC)
-	setJobLifecycleState(t, env.dbPath, created.JobID, upload.JobStatusProcessing, 25, &stage, updatedAt, nil, nil, nil)
+	setJobLifecycleState(t, env.dbPath, created.JobID, upload.JobStatusProcessing, 25, &stage, nil, updatedAt, nil, nil, nil)
 
 	resp := sendJobStatusRequest(t, env.client, http.MethodGet, env.server.URL+"/jobs/"+created.JobID, sessionID)
 	defer resp.Body.Close()
@@ -119,7 +119,7 @@ func TestJobStatusIntegrationReturnsVideoDecodingProcessingPayload(t *testing.T)
 		t.Fatalf("expected status %q, got %q", upload.JobStatusProcessing, payload.Status)
 	}
 	if payload.Progress != 25 {
-		t.Fatalf("expected progress 25, got %d", payload.Progress)
+		t.Fatalf("expected progress 25, got %v", payload.Progress)
 	}
 	if payload.Stage == nil || *payload.Stage != stage {
 		t.Fatalf("expected stage %q, got %#v", stage, payload.Stage)
@@ -139,7 +139,7 @@ func TestJobStatusIntegrationReturnsSucceededPayload(t *testing.T) {
 
 	updatedAt := time.Date(2026, time.March, 4, 17, 30, 0, 0, time.UTC)
 	finishedAt := updatedAt
-	setJobLifecycleState(t, env.dbPath, created.JobID, upload.JobStatusSucceeded, 100, nil, updatedAt, &finishedAt, nil, nil)
+	setJobLifecycleState(t, env.dbPath, created.JobID, upload.JobStatusSucceeded, 100, nil, nil, updatedAt, &finishedAt, nil, nil)
 
 	resp := sendJobStatusRequest(t, env.client, http.MethodGet, env.server.URL+"/jobs/"+created.JobID, sessionID)
 	defer resp.Body.Close()
@@ -157,7 +157,7 @@ func TestJobStatusIntegrationReturnsSucceededPayload(t *testing.T) {
 		t.Fatalf("expected status %q, got %q", upload.JobStatusSucceeded, payload.Status)
 	}
 	if payload.Progress != 100 {
-		t.Fatalf("expected progress 100, got %d", payload.Progress)
+		t.Fatalf("expected progress 100, got %v", payload.Progress)
 	}
 	if payload.Stage != nil {
 		t.Fatalf("expected stage to be null, got %q", *payload.Stage)
@@ -187,6 +187,7 @@ func TestJobStatusIntegrationReturnsFailedPayload(t *testing.T) {
 		upload.JobStatusFailed,
 		100,
 		&stage,
+		nil,
 		updatedAt,
 		&finishedAt,
 		&errorCode,
@@ -209,7 +210,7 @@ func TestJobStatusIntegrationReturnsFailedPayload(t *testing.T) {
 		t.Fatalf("expected status %q, got %q", upload.JobStatusFailed, payload.Status)
 	}
 	if payload.Progress != 100 {
-		t.Fatalf("expected progress 100, got %d", payload.Progress)
+		t.Fatalf("expected progress 100, got %v", payload.Progress)
 	}
 	if payload.Stage == nil || *payload.Stage != stage {
 		t.Fatalf("expected stage %q, got %#v", stage, payload.Stage)
@@ -235,7 +236,7 @@ func TestJobStatusIntegrationReturnsPendingUserDedupStatusUnchanged(t *testing.T
 
 	updatedAt := time.Date(2026, time.March, 4, 18, 0, 0, 0, time.UTC)
 	finishedAt := updatedAt
-	setJobLifecycleState(t, env.dbPath, created.JobID, upload.JobStatusPendingUserDedup, 100, nil, updatedAt, &finishedAt, nil, nil)
+	setJobLifecycleState(t, env.dbPath, created.JobID, upload.JobStatusPendingUserDedup, 100, nil, nil, updatedAt, &finishedAt, nil, nil)
 
 	resp := sendJobStatusRequest(t, env.client, http.MethodGet, env.server.URL+"/jobs/"+created.JobID, sessionID)
 	defer resp.Body.Close()
@@ -253,7 +254,7 @@ func TestJobStatusIntegrationReturnsPendingUserDedupStatusUnchanged(t *testing.T
 		t.Fatalf("expected status %q, got %q", upload.JobStatusPendingUserDedup, payload.Status)
 	}
 	if payload.Progress != 100 {
-		t.Fatalf("expected progress 100, got %d", payload.Progress)
+		t.Fatalf("expected progress 100, got %v", payload.Progress)
 	}
 	if payload.Stage != nil {
 		t.Fatalf("expected stage to be null, got %q", *payload.Stage)
@@ -508,15 +509,16 @@ func sendJobStatusRequest(t *testing.T, client *http.Client, method string, url 
 }
 
 type jobStatusResponse struct {
-	JobID      string                `json:"jobId"`
-	UploadID   string                `json:"uploadId"`
-	Status     string                `json:"status"`
-	Progress   int                   `json:"progress"`
-	Stage      *string               `json:"stage"`
-	CreatedAt  string                `json:"createdAt"`
-	UpdatedAt  string                `json:"updatedAt"`
-	FinishedAt *string               `json:"finishedAt"`
-	Error      *jobStatusErrorObject `json:"error"`
+	JobID               string                `json:"jobId"`
+	UploadID            string                `json:"uploadId"`
+	Status              string                `json:"status"`
+	Progress            float64               `json:"progress"`
+	Stage               *string               `json:"stage"`
+	ProgressDescription *string               `json:"progressDescription"`
+	CreatedAt           string                `json:"createdAt"`
+	UpdatedAt           string                `json:"updatedAt"`
+	FinishedAt          *string               `json:"finishedAt"`
+	Error               *jobStatusErrorObject `json:"error"`
 }
 
 type jobStatusErrorObject struct {
@@ -540,8 +542,9 @@ func setJobLifecycleState(
 	dbPath string,
 	jobID string,
 	status string,
-	progress int,
+	progress float64,
 	stage *string,
+	progressDescription *string,
 	updatedAt time.Time,
 	finishedAt *time.Time,
 	errorCode *string,
@@ -573,7 +576,7 @@ func setJobLifecycleState(
 
 	const query = `
 UPDATE jobs
-SET status = ?, progress = ?, stage = ?, updated_at = ?, finished_at = ?, error_code = ?, error_message = ?
+SET status = ?, progress = ?, stage = ?, progress_description = ?, updated_at = ?, finished_at = ?, error_code = ?, error_message = ?
 WHERE id = ?;`
 
 	result, err := db.Exec(
@@ -581,6 +584,7 @@ WHERE id = ?;`
 		status,
 		progress,
 		stageValue,
+		progressDescription,
 		updatedAt.UTC().Format(time.RFC3339Nano),
 		finishedAtValue,
 		errorCodeValue,

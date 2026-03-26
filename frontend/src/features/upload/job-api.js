@@ -33,6 +33,7 @@ const defaultApiClient = createApiClient();
  * @property {string} status
  * @property {number} progress
  * @property {string|null} stage
+ * @property {string|null} progressDescription
  * @property {string} createdAt
  * @property {string} updatedAt
  * @property {string|null} finishedAt
@@ -169,7 +170,7 @@ function normalizeJobError(errorPayload, payload) {
 }
 
 /**
- * Normalizes job progress into a rounded percentage between 0 and 100.
+ * Normalizes job progress into a percentage between 0 and 100 while preserving decimals.
  *
  * @param {unknown} progressValue
  * @param {JsonValue|null} payload
@@ -185,7 +186,7 @@ function normalizeProgress(progressValue, payload) {
     });
   }
 
-  return Math.max(0, Math.min(100, Math.round(progressValue)));
+  return Math.max(0, Math.min(100, progressValue));
 }
 
 /**
@@ -210,6 +211,7 @@ function normalizeJobStatusResponse(payload) {
     status: normalizeRequiredString(payload.status, "status", payload),
     progress: normalizeProgress(payload.progress, payload),
     stage: normalizeOptionalNullableString(payload.stage),
+    progressDescription: normalizeOptionalNullableString(payload.progressDescription),
     createdAt: normalizeRequiredString(payload.createdAt, "createdAt", payload),
     updatedAt: normalizeRequiredString(payload.updatedAt, "updatedAt", payload),
     finishedAt: normalizeOptionalNullableString(payload.finishedAt),

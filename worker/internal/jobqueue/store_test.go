@@ -75,7 +75,7 @@ WHERE id = ?;`
 	var claimedAt sql.NullString
 	var heartbeatAt sql.NullString
 	var stage sql.NullString
-	var progress int
+	var progress float64
 	if err := store.db.QueryRowContext(ctx, query, "job-claim-1").Scan(
 		&status,
 		&workerID,
@@ -100,7 +100,7 @@ WHERE id = ?;`
 		t.Fatalf("expected stage %q, got %#v", DefaultClaimStage, stage)
 	}
 	if progress != DefaultClaimInitialProgress {
-		t.Fatalf("expected progress %d, got %d", DefaultClaimInitialProgress, progress)
+		t.Fatalf("expected progress %v, got %v", DefaultClaimInitialProgress, progress)
 	}
 }
 
@@ -123,7 +123,7 @@ func TestProgressAndHeartbeatUpdatesRespectWorkerOwnership(t *testing.T) {
 		updatedAt:   now.Add(-2 * time.Second),
 	})
 
-	updated, err := store.UpdateJobProgress(ctx, "job-owner-1", "different-worker", "POSTPROCESSING", 90, now)
+	updated, err := store.UpdateJobProgress(ctx, "job-owner-1", "different-worker", "POSTPROCESSING", 90, nil, now)
 	if err != nil {
 		t.Fatalf("expected ownership mismatch to be handled, got: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestProgressAndHeartbeatUpdatesRespectWorkerOwnership(t *testing.T) {
 
 	const query = `SELECT stage, progress FROM jobs WHERE id = ?;`
 	var stage sql.NullString
-	var progress int
+	var progress float64
 	if err := store.db.QueryRowContext(ctx, query, "job-owner-1").Scan(&stage, &progress); err != nil {
 		t.Fatalf("expected owned job row, got: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestProgressAndHeartbeatUpdatesRespectWorkerOwnership(t *testing.T) {
 		t.Fatalf("expected stage to remain SAMPLING_FRAMES, got %#v", stage)
 	}
 	if progress != 35 {
-		t.Fatalf("expected progress to remain 35, got %d", progress)
+		t.Fatalf("expected progress to remain 35, got %v", progress)
 	}
 }
 
@@ -287,7 +287,7 @@ FROM jobs
 WHERE id = ?;`
 
 	var successStatus string
-	var successProgress int
+	var successProgress float64
 	var successStage sql.NullString
 	var successErrorCode sql.NullString
 	var successErrorMessage sql.NullString
@@ -306,7 +306,7 @@ WHERE id = ?;`
 		t.Fatalf("expected status %q, got %q", JobStatusSucceeded, successStatus)
 	}
 	if successProgress != 100 {
-		t.Fatalf("expected progress 100, got %d", successProgress)
+		t.Fatalf("expected progress 100, got %v", successProgress)
 	}
 	if successStage.Valid {
 		t.Fatalf("expected stage to be NULL, got %q", successStage.String)
@@ -425,7 +425,7 @@ FROM jobs
 WHERE id = ?;`
 
 	var status string
-	var progress int
+	var progress float64
 	var stage sql.NullString
 	var errorCode sql.NullString
 	var errorMessage sql.NullString
@@ -444,7 +444,7 @@ WHERE id = ?;`
 		t.Fatalf("expected status %q, got %q", JobStatusPendingUserDedup, status)
 	}
 	if progress != 100 {
-		t.Fatalf("expected progress 100, got %d", progress)
+		t.Fatalf("expected progress 100, got %v", progress)
 	}
 	if stage.Valid {
 		t.Fatalf("expected stage to be NULL, got %q", stage.String)
@@ -463,7 +463,7 @@ type seededJob struct {
 	sessionID   string
 	status      string
 	stage       *string
-	progress    int
+	progress    float64
 	workerID    *string
 	claimedAt   *time.Time
 	heartbeatAt *time.Time
@@ -512,7 +512,8 @@ CREATE TABLE IF NOT EXISTS jobs (
 	session_id TEXT NOT NULL,
 	parent_job_id TEXT NULL,
 	status TEXT NOT NULL,
-	progress INTEGER NOT NULL,
+	progress REAL NOT NULL,
+	progress_description TEXT NULL,
 	stage TEXT NULL,
 	worker_id TEXT NULL,
 	claimed_at TEXT NULL,
@@ -617,10 +618,10 @@ func seedJob(t *testing.T, store *sqliteStore, row seededJob) {
 
 	const insertJob = `
 INSERT INTO jobs(
-	id, upload_id, session_id, parent_job_id, status, progress, stage,
+	id, upload_id, session_id, parent_job_id, status, progress, stage, progress_description,
 	worker_id, claimed_at, heartbeat_at, error_code, error_message,
 	created_at, updated_at, finished_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
 
 	var claimedAt any
 	if row.claimedAt != nil {
@@ -651,6 +652,7 @@ INSERT INTO jobs(
 		row.status,
 		row.progress,
 		stage,
+		nil,
 		workerID,
 		claimedAt,
 		heartbeatAt,

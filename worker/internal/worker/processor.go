@@ -8,7 +8,7 @@ import (
 )
 
 // ProgressReporter persists stage/progress updates for an owned job.
-type ProgressReporter func(stage string, progress int) error
+type ProgressReporter func(stage string, progress float64, progressDescription *string) error
 
 // Processor executes job-specific work while reporting lifecycle progress.
 type Processor interface {

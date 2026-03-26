@@ -67,7 +67,7 @@ func TestActiveJobStatusHandlerReturnsActiveJobPayload(t *testing.T) {
 		t.Fatalf("expected status %q, got %q", upload.JobStatusProcessing, payload.Job.Status)
 	}
 	if payload.Job.Progress != 35 {
-		t.Fatalf("expected progress %d, got %d", 35, payload.Job.Progress)
+		t.Fatalf("expected progress %v, got %v", 35.0, payload.Job.Progress)
 	}
 	assertOptionalStringPtrEqual(t, &stage, payload.Job.Stage, "stage")
 }

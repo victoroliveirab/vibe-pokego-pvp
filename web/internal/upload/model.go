@@ -46,7 +46,7 @@ type Job struct {
 	UploadID  string
 	SessionID string
 	Status    string
-	Progress  int
+	Progress  float64
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -64,17 +64,18 @@ type RetryJob struct {
 
 // JobStatusRecord stores a polling-ready projection for a job.
 type JobStatusRecord struct {
-	ID           string
-	UploadID     string
-	SessionID    string
-	Status       string
-	Progress     int
-	Stage        *string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	FinishedAt   *time.Time
-	ErrorCode    *string
-	ErrorMessage *string
+	ID                  string
+	UploadID            string
+	SessionID           string
+	Status              string
+	Progress            float64
+	Stage               *string
+	ProgressDescription *string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	FinishedAt          *time.Time
+	ErrorCode           *string
+	ErrorMessage        *string
 }
 
 // PokemonResultRecord stores one accepted appraisal result row.

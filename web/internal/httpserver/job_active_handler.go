@@ -44,15 +44,16 @@ func (h *activeJobStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"job": map[string]any{
-			"jobId":      record.ID,
-			"uploadId":   record.UploadID,
-			"status":     record.Status,
-			"progress":   record.Progress,
-			"stage":      record.Stage,
-			"createdAt":  record.CreatedAt.Format(time.RFC3339Nano),
-			"updatedAt":  record.UpdatedAt.Format(time.RFC3339Nano),
-			"finishedAt": formatOptionalTime(record.FinishedAt),
-			"error":      buildOptionalJobError(record.ErrorCode, record.ErrorMessage),
+			"jobId":               record.ID,
+			"uploadId":            record.UploadID,
+			"status":              record.Status,
+			"progress":            record.Progress,
+			"stage":               record.Stage,
+			"progressDescription": derefOptionalString(record.ProgressDescription),
+			"createdAt":           record.CreatedAt.Format(time.RFC3339Nano),
+			"updatedAt":           record.UpdatedAt.Format(time.RFC3339Nano),
+			"finishedAt":          formatOptionalTime(record.FinishedAt),
+			"error":               buildOptionalJobError(record.ErrorCode, record.ErrorMessage),
 		},
 	})
 }

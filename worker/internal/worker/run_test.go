@@ -74,7 +74,7 @@ FROM jobs
 WHERE id = ?;`
 
 	var status string
-	var progress int
+	var progress float64
 	var stage sql.NullString
 	var workerID sql.NullString
 	var claimedAt sql.NullString
@@ -100,7 +100,7 @@ WHERE id = ?;`
 		t.Fatalf("expected status %q, got %q", jobqueue.JobStatusSucceeded, status)
 	}
 	if progress != 100 {
-		t.Fatalf("expected progress 100, got %d", progress)
+		t.Fatalf("expected progress 100, got %v", progress)
 	}
 	if stage.Valid {
 		t.Fatalf("expected terminal stage to be NULL, got %q", stage.String)
@@ -229,7 +229,7 @@ func TestRunQueueTickInvokesPVPEvalRunner(t *testing.T) {
 
 type runQueueStageUpdate struct {
 	stage    string
-	progress int
+	progress float64
 }
 
 type runQueueTestProcessor struct {
@@ -245,7 +245,7 @@ func (p *runQueueTestProcessor) Process(
 ) error {
 	p.calls++
 	for _, update := range p.stages {
-		if err := reportProgress(update.stage, update.progress); err != nil {
+		if err := reportProgress(update.stage, update.progress, nil); err != nil {
 			return err
 		}
 	}
@@ -258,7 +258,7 @@ type runQueueSeededJob struct {
 	sessionID   string
 	status      string
 	stage       *string
-	progress    int
+	progress    float64
 	workerID    *string
 	claimedAt   *time.Time
 	heartbeatAt *time.Time
@@ -287,7 +287,8 @@ CREATE TABLE IF NOT EXISTS jobs (
 	session_id TEXT NOT NULL,
 	parent_job_id TEXT NULL,
 	status TEXT NOT NULL,
-	progress INTEGER NOT NULL,
+	progress REAL NOT NULL,
+	progress_description TEXT NULL,
 	stage TEXT NULL,
 	worker_id TEXT NULL,
 	claimed_at TEXT NULL,
@@ -311,9 +312,9 @@ func seedRunQueueJob(t *testing.T, db *sql.DB, job runQueueSeededJob) {
 
 	const insert = `
 INSERT INTO jobs (
-	id, upload_id, session_id, parent_job_id, status, progress, stage, worker_id,
+	id, upload_id, session_id, parent_job_id, status, progress, stage, progress_description, worker_id,
 	claimed_at, heartbeat_at, error_code, error_message, created_at, updated_at, finished_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
 
 	if _, err := db.ExecContext(
 		context.Background(),
@@ -325,6 +326,7 @@ INSERT INTO jobs (
 		job.status,
 		job.progress,
 		job.stage,
+		nil,
 		job.workerID,
 		formatOptionalTime(job.claimedAt),
 		formatOptionalTime(job.heartbeatAt),

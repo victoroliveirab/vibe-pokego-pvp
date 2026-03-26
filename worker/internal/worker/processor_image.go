@@ -12,6 +12,7 @@ import (
 	"image/png"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -35,13 +36,20 @@ import (
 )
 
 const (
-	progressDownloadingMedia    = 6
-	progressDecodingImage       = 22
-	progressDecodingVideo       = 22
-	progressSamplingFrames      = 34
-	progressExtractingAppraisal = 74
-	progressPostprocessing      = 88
-	progressPersistingResults   = 96
+	imageProgressDownloadingMedia    = 6.0
+	imageProgressDecodingImage       = 22.0
+	imageProgressExtractingAppraisal = 74.0
+	imageProgressPostprocessing      = 88.0
+	imageProgressPersistingResults   = 96.0
+
+	videoProgressDownloadingMedia = 3.0
+	videoProgressDecoding         = 5.0
+	videoProgressSamplingStart    = 5.0
+	videoProgressSamplingEnd      = 50.0
+	videoProgressExtractingStart  = 50.0
+	videoProgressExtractingEnd    = 95.0
+	videoProgressPostprocessing   = 95.0
+	videoProgressPersisting       = 95.0
 
 	speciesNamePageSegMode = 7
 	cpPageSegModePrimary   = 7
@@ -238,10 +246,6 @@ func (p imageProcessor) Process(
 		}
 	}()
 
-	if err := p.reportStage(ctx, reportProgress, jobqueue.StageDownloadingMedia, progressDownloadingMedia); err != nil {
-		return err
-	}
-
 	mediaURL, mediaKind, err := lookupUploadMedia(ctx, p.databasePath, job.UploadID)
 	if err != nil {
 		return ProcessingError{
@@ -299,9 +303,19 @@ func (p imageProcessor) reportStage(
 	ctx context.Context,
 	reportProgress ProgressReporter,
 	stage string,
-	progress int,
+	progress float64,
 ) error {
-	if err := reportProgress(stage, progress); err != nil {
+	return p.reportStageWithDescription(ctx, reportProgress, stage, progress, nil)
+}
+
+func (p imageProcessor) reportStageWithDescription(
+	ctx context.Context,
+	reportProgress ProgressReporter,
+	stage string,
+	progress float64,
+	progressDescription *string,
+) error {
+	if err := reportProgress(stage, progress, progressDescription); err != nil {
 		return err
 	}
 
@@ -310,6 +324,29 @@ func (p imageProcessor) reportStage(
 	}
 
 	return sleepWithContext(ctx, p.stepDelay)
+}
+
+func progressForCompletedFrames(start float64, end float64, completed int, total int) float64 {
+	if total <= 0 {
+		return end
+	}
+
+	progress := start + ((end-start)*float64(completed))/float64(total)
+	if completed >= total {
+		return end
+	}
+
+	return math.Round(progress*100) / 100
+}
+
+func progressDescriptionSampling(completed int, total int) *string {
+	value := fmt.Sprintf("sampling %d/%d frames", completed, total)
+	return &value
+}
+
+func progressDescriptionExtracting(completed int, total int) *string {
+	value := fmt.Sprintf("extracting %d/%d appraisal", completed, total)
+	return &value
 }
 
 type processedFrame struct {
@@ -344,10 +381,6 @@ func (p imageProcessor) processImage(
 ) error {
 	logger := slog.Default().With("job_id", job.ID, "upload_id", job.UploadID)
 
-	if err := p.reportStage(ctx, reportProgress, jobqueue.StageDecodingImage, progressDecodingImage); err != nil {
-		return err
-	}
-
 	localPath, cleanupMedia, err := p.resolveMediaForProcessing(ctx, mediaURL)
 	if err != nil {
 		return ProcessingError{
@@ -356,6 +389,14 @@ func (p imageProcessor) processImage(
 		}
 	}
 	defer cleanupMedia()
+
+	if err := p.reportStage(ctx, reportProgress, jobqueue.StageDownloadingMedia, imageProgressDownloadingMedia); err != nil {
+		return err
+	}
+
+	if err := p.reportStage(ctx, reportProgress, jobqueue.StageDecodingImage, imageProgressDecodingImage); err != nil {
+		return err
+	}
 
 	decodedImage, err := imageproc.DecodeFile(localPath)
 	if err != nil {
@@ -380,7 +421,7 @@ func (p imageProcessor) processImage(
 
 	logger.Info("image decoded for processing", "path", localPath, "bounds", decodedImage.Image.Bounds())
 
-	if err := p.reportStage(ctx, reportProgress, jobqueue.StageExtractingAppraisal, progressExtractingAppraisal); err != nil {
+	if err := p.reportStage(ctx, reportProgress, jobqueue.StageExtractingAppraisal, imageProgressExtractingAppraisal); err != nil {
 		return err
 	}
 
@@ -426,7 +467,7 @@ func (p imageProcessor) processImage(
 
 	logger.Info("image appraisal extraction completed")
 
-	if err := p.reportStage(ctx, reportProgress, jobqueue.StagePostprocessing, progressPostprocessing); err != nil {
+	if err := p.reportStage(ctx, reportProgress, jobqueue.StagePostprocessing, imageProgressPostprocessing); err != nil {
 		return err
 	}
 	if err := updateJobDebugMilestone(
@@ -441,7 +482,7 @@ func (p imageProcessor) processImage(
 	); err != nil {
 		return err
 	}
-	if err := p.reportStage(ctx, reportProgress, jobqueue.StagePersistingResults, progressPersistingResults); err != nil {
+	if err := p.reportStage(ctx, reportProgress, jobqueue.StagePersistingResults, imageProgressPersistingResults); err != nil {
 		return err
 	}
 
@@ -489,10 +530,6 @@ func (p imageProcessor) processVideo(
 ) error {
 	logger := slog.Default().With("job_id", job.ID, "upload_id", job.UploadID)
 
-	if err := p.reportStage(ctx, reportProgress, jobqueue.StageDecodingVideo, progressDecodingVideo); err != nil {
-		return err
-	}
-
 	localPath, cleanupMedia, err := p.resolveMediaForProcessing(ctx, mediaURL)
 	if err != nil {
 		return ProcessingError{
@@ -501,6 +538,14 @@ func (p imageProcessor) processVideo(
 		}
 	}
 	defer cleanupMedia()
+
+	if err := p.reportStage(ctx, reportProgress, jobqueue.StageDownloadingMedia, videoProgressDownloadingMedia); err != nil {
+		return err
+	}
+
+	if err := p.reportStage(ctx, reportProgress, jobqueue.StageDecodingVideo, videoProgressDecoding); err != nil {
+		return err
+	}
 	if err := updateJobDebugMilestone(
 		ctx,
 		debugStore,
@@ -515,10 +560,6 @@ func (p imageProcessor) processVideo(
 	}
 
 	logger.Info("video resolved for processing", "path", localPath)
-
-	if err := p.reportStage(ctx, reportProgress, jobqueue.StageSamplingFrames, progressSamplingFrames); err != nil {
-		return err
-	}
 
 	samples, err := p.videoSampler.SampleFrames(ctx, localPath)
 	if err != nil {
@@ -542,8 +583,37 @@ func (p imageProcessor) processVideo(
 
 	logger.Info("video frame sampling completed", "sample_count", len(samples))
 
-	if err := p.reportStage(ctx, reportProgress, jobqueue.StageExtractingAppraisal, progressExtractingAppraisal); err != nil {
-		return err
+	if len(samples) == 0 {
+		if err := p.reportStageWithDescription(
+			ctx,
+			reportProgress,
+			jobqueue.StageSamplingFrames,
+			videoProgressSamplingEnd,
+			progressDescriptionSampling(0, 0),
+		); err != nil {
+			return err
+		}
+		if err := p.reportStageWithDescription(
+			ctx,
+			reportProgress,
+			jobqueue.StageExtractingAppraisal,
+			videoProgressExtractingEnd,
+			progressDescriptionExtracting(0, 0),
+		); err != nil {
+			return err
+		}
+	} else {
+		for idx := range samples {
+			if err := p.reportStageWithDescription(
+				ctx,
+				reportProgress,
+				jobqueue.StageSamplingFrames,
+				progressForCompletedFrames(videoProgressSamplingStart, videoProgressSamplingEnd, idx+1, len(samples)),
+				progressDescriptionSampling(idx+1, len(samples)),
+			); err != nil {
+				return err
+			}
+		}
 	}
 
 	frames := make([]processedFrame, 0, len(samples))
@@ -637,6 +707,15 @@ func (p imageProcessor) processVideo(
 			); err != nil {
 				return err
 			}
+			if err := p.reportStageWithDescription(
+				ctx,
+				reportProgress,
+				jobqueue.StageExtractingAppraisal,
+				progressForCompletedFrames(videoProgressExtractingStart, videoProgressExtractingEnd, idx+1, len(samples)),
+				progressDescriptionExtracting(idx+1, len(samples)),
+			); err != nil {
+				return err
+			}
 			stableStreak = 0
 			continue
 		}
@@ -659,6 +738,15 @@ func (p imageProcessor) processVideo(
 			); err != nil {
 				return err
 			}
+			if err := p.reportStageWithDescription(
+				ctx,
+				reportProgress,
+				jobqueue.StageExtractingAppraisal,
+				progressForCompletedFrames(videoProgressExtractingStart, videoProgressExtractingEnd, idx+1, len(samples)),
+				progressDescriptionExtracting(idx+1, len(samples)),
+			); err != nil {
+				return err
+			}
 			continue
 		}
 
@@ -673,6 +761,15 @@ func (p imageProcessor) processVideo(
 				idx+1,
 				&frameTimestamp,
 				frame,
+			); err != nil {
+				return err
+			}
+			if err := p.reportStageWithDescription(
+				ctx,
+				reportProgress,
+				jobqueue.StageExtractingAppraisal,
+				progressForCompletedFrames(videoProgressExtractingStart, videoProgressExtractingEnd, idx+1, len(samples)),
+				progressDescriptionExtracting(idx+1, len(samples)),
 			); err != nil {
 				return err
 			}
@@ -698,6 +795,15 @@ func (p imageProcessor) processVideo(
 		}
 
 		frames = append(frames, frame)
+		if err := p.reportStageWithDescription(
+			ctx,
+			reportProgress,
+			jobqueue.StageExtractingAppraisal,
+			progressForCompletedFrames(videoProgressExtractingStart, videoProgressExtractingEnd, idx+1, len(samples)),
+			progressDescriptionExtracting(idx+1, len(samples)),
+		); err != nil {
+			return err
+		}
 	}
 	if err := updateJobDebugMilestone(
 		ctx,
@@ -712,7 +818,7 @@ func (p imageProcessor) processVideo(
 
 	logger.Info("video appraisal extraction completed", "processed_frame_count", len(frames))
 
-	if err := p.reportStage(ctx, reportProgress, jobqueue.StagePostprocessing, progressPostprocessing); err != nil {
+	if err := p.reportStage(ctx, reportProgress, jobqueue.StagePostprocessing, videoProgressPostprocessing); err != nil {
 		return err
 	}
 	if err := updateJobDebugMilestone(
@@ -727,7 +833,7 @@ func (p imageProcessor) processVideo(
 	); err != nil {
 		return err
 	}
-	if err := p.reportStage(ctx, reportProgress, jobqueue.StagePersistingResults, progressPersistingResults); err != nil {
+	if err := p.reportStage(ctx, reportProgress, jobqueue.StagePersistingResults, videoProgressPersisting); err != nil {
 		return err
 	}
 

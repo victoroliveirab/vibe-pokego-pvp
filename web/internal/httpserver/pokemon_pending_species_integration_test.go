@@ -20,8 +20,8 @@ func TestPokemonPendingSpeciesIntegrationReturnsSessionScopedReadingsWithOptions
 	createdB := createUploadAndJobViaHTTP(t, env, sessionB)
 	pendingAt := time.Date(2026, time.March, 6, 16, 0, 0, 0, time.UTC)
 	finishedAt := pendingAt
-	setJobLifecycleState(t, env.dbPath, createdA.JobID, upload.JobStatusPendingUserDedup, 100, nil, pendingAt, &finishedAt, nil, nil)
-	setJobLifecycleState(t, env.dbPath, createdB.JobID, upload.JobStatusPendingUserDedup, 100, nil, pendingAt, &finishedAt, nil, nil)
+	setJobLifecycleState(t, env.dbPath, createdA.JobID, upload.JobStatusPendingUserDedup, 100, nil, nil, pendingAt, &finishedAt, nil, nil)
+	setJobLifecycleState(t, env.dbPath, createdB.JobID, upload.JobStatusPendingUserDedup, 100, nil, nil, pendingAt, &finishedAt, nil, nil)
 
 	readingA := seededPendingReadingRow{
 		ID:               "reading-a",
@@ -125,6 +125,7 @@ func TestPokemonPendingSpeciesResolveIntegrationFinalizesReadingAndRejectsRereso
 		created.JobID,
 		upload.JobStatusPendingUserDedup,
 		100,
+		nil,
 		nil,
 		pendingAt,
 		&finishedAt,
@@ -258,6 +259,7 @@ func TestPokemonPendingSpeciesDismissIntegrationFinalizesReadingWithoutResult(t 
 		created.JobID,
 		upload.JobStatusPendingUserDedup,
 		100,
+		nil,
 		nil,
 		pendingAt,
 		&finishedAt,

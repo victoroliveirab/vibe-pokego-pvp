@@ -135,7 +135,7 @@ func TestCreateUploadAndQueuedJobCreatesBothRowsWithQueuedDefaults(t *testing.T)
 		t.Fatalf("expected status %q, got %q", JobStatusQueued, createdJob.Status)
 	}
 	if createdJob.Progress != 0 {
-		t.Fatalf("expected progress 0, got %d", createdJob.Progress)
+		t.Fatalf("expected progress 0, got %v", createdJob.Progress)
 	}
 
 	assertRowCount(t, store.db, "uploads", "id", createdUpload.ID, 1)
@@ -149,7 +149,7 @@ WHERE id = ?;`
 
 	var parentJobID sql.NullString
 	var status string
-	var progress int
+	var progress float64
 	var stage sql.NullString
 	var workerID sql.NullString
 	var claimedAt sql.NullString
@@ -179,7 +179,7 @@ WHERE id = ?;`
 		t.Fatalf("expected status %q, got %q", JobStatusQueued, status)
 	}
 	if progress != 0 {
-		t.Fatalf("expected progress 0, got %d", progress)
+		t.Fatalf("expected progress 0, got %v", progress)
 	}
 	for _, field := range []struct {
 		name  string
@@ -322,7 +322,7 @@ WHERE id = ?;`
 	var sessionID string
 	var parentJobID sql.NullString
 	var status string
-	var progress int
+	var progress float64
 	var stage sql.NullString
 	var workerID sql.NullString
 	var claimedAt sql.NullString
@@ -364,7 +364,7 @@ WHERE id = ?;`
 		t.Fatalf("expected status %q, got %q", JobStatusQueued, status)
 	}
 	if progress != 0 {
-		t.Fatalf("expected progress 0, got %d", progress)
+		t.Fatalf("expected progress 0, got %v", progress)
 	}
 	for _, field := range []struct {
 		name  string
@@ -551,7 +551,7 @@ func TestGetJobStatusReturnsFullLifecycleData(t *testing.T) {
 	cases := []struct {
 		name         string
 		status       string
-		progress     int
+		progress     float64
 		stage        *string
 		finishedAt   *time.Time
 		errorCode    *string
@@ -632,7 +632,7 @@ func TestGetJobStatusReturnsFullLifecycleData(t *testing.T) {
 			t.Fatalf("%s: expected status %q, got %q", tc.name, tc.status, record.Status)
 		}
 		if record.Progress != tc.progress {
-			t.Fatalf("%s: expected progress %d, got %d", tc.name, tc.progress, record.Progress)
+			t.Fatalf("%s: expected progress %v, got %v", tc.name, tc.progress, record.Progress)
 		}
 		assertOptionalStringEqual(t, tc.name, "stage", tc.stage, record.Stage)
 		if !record.CreatedAt.Equal(createdAt) {
@@ -2416,7 +2416,7 @@ type jobSnapshot struct {
 	SessionID    string
 	ParentJobID  sql.NullString
 	Status       string
-	Progress     int
+	Progress     float64
 	Stage        sql.NullString
 	WorkerID     sql.NullString
 	ClaimedAt    sql.NullString
@@ -2465,7 +2465,7 @@ type seededJobRow struct {
 	UploadID     string
 	SessionID    string
 	Status       string
-	Progress     int
+	Progress     float64
 	Stage        *string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time

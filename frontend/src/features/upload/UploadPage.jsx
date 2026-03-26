@@ -750,6 +750,7 @@ export default function UploadPage({
             jobError={state.jobError}
             jobId={state.jobId}
             jobProgress={state.jobProgress}
+            jobProgressDescription={state.jobProgressDescription}
             jobStage={state.jobStage}
             jobStatus={state.jobStatus}
             lastPolledAt={state.lastPolledAt}
@@ -772,6 +773,9 @@ export default function UploadPage({
             {state.jobStatus ? <p className="mt-1 break-all">Job status: {state.jobStatus}</p> : null}
             {state.jobStage ? <p className="mt-1 break-all">Job stage: {state.jobStage}</p> : null}
             {state.jobStatus ? <p className="mt-1 break-all">Job progress: {state.jobProgress}%</p> : null}
+            {state.jobProgressDescription ? (
+              <p className="mt-1 break-all">Job progress detail: {state.jobProgressDescription}</p>
+            ) : null}
             {state.finishedAt ? <p className="mt-1 break-all">Job finished at: {state.finishedAt}</p> : null}
             {state.lastPolledAt ? <p className="mt-1 break-all">Last polled at: {state.lastPolledAt}</p> : null}
             {state.jobError ? (

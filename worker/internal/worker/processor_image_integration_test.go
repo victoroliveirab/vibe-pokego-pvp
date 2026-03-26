@@ -154,7 +154,7 @@ func TestImageProcessorFixtureIntegrationPipeline(t *testing.T) {
 					UploadID:  uploadID,
 					SessionID: sessionID,
 				},
-				func(string, int) error { return nil },
+				func(string, float64, *string) error { return nil },
 			)
 
 			candidateCount := countRowsForJob(t, db, "appraisal_candidates", jobID)

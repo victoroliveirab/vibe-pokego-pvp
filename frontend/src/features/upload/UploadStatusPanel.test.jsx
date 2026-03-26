@@ -11,6 +11,7 @@ function createPanelProps(overrides = {}) {
     jobError: null,
     jobId: "job-123",
     jobProgress: 0,
+    jobProgressDescription: "",
     jobStage: "",
     jobStatus: "QUEUED",
     lastPolledAt: "",
@@ -47,15 +48,17 @@ describe("upload status panel", () => {
       <UploadStatusPanel
         {...createPanelProps({
           jobStatus: "PROCESSING",
-          jobProgress: 42,
+          jobProgress: 42.5,
           jobStage: "SAMPLING_FRAMES",
+          jobProgressDescription: "sampling 75/90 frames",
         })}
       />,
     );
 
     expect(screen.getByText("Processing")).toBeTruthy();
     expect(screen.getByText("Stage: Sampling Frames")).toBeTruthy();
-    expect(screen.getByText("Progress: 42%")).toBeTruthy();
+    expect(screen.getByText("Progress: 42.5%")).toBeTruthy();
+    expect(screen.getByText("Detail: sampling 75/90 frames")).toBeTruthy();
     expect(screen.getByRole("progressbar", { name: "Job progress" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Retry processing" })).toBeNull();
   });

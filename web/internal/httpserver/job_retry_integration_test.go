@@ -25,6 +25,7 @@ func TestJobRetryIntegrationCreatesQueuedChildAndPreservesParentRow(t *testing.T
 		upload.JobStatusFailed,
 		100,
 		&failedStage,
+		nil,
 		failedAt,
 		&failedAt,
 		&failedCode,
@@ -73,7 +74,7 @@ func TestJobRetryIntegrationCreatesQueuedChildAndPreservesParentRow(t *testing.T
 		t.Fatalf("expected child status %q, got %q", upload.JobStatusQueued, childSnapshot.Status)
 	}
 	if childSnapshot.Progress != 0 {
-		t.Fatalf("expected child progress 0, got %d", childSnapshot.Progress)
+		t.Fatalf("expected child progress 0, got %v", childSnapshot.Progress)
 	}
 	for _, field := range []struct {
 		name  string
@@ -238,7 +239,7 @@ type integrationJobSnapshot struct {
 	SessionID    string
 	ParentJobID  sql.NullString
 	Status       string
-	Progress     int
+	Progress     float64
 	Stage        sql.NullString
 	WorkerID     sql.NullString
 	ClaimedAt    sql.NullString

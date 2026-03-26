@@ -14,15 +14,18 @@ func TestStubProcessorReportsProgressAndReturnsStructuredFailure(t *testing.T) {
 
 	type progressUpdate struct {
 		stage    string
-		progress int
+		progress float64
 	}
 
 	var updates []progressUpdate
 	err := processor.Process(
 		context.Background(),
 		jobqueue.ClaimedJob{ID: "job-1"},
-		func(stage string, progress int) error {
+		func(stage string, progress float64, progressDescription *string) error {
 			updates = append(updates, progressUpdate{stage: stage, progress: progress})
+			if progressDescription != nil {
+				t.Fatalf("expected stub processor to omit progress descriptions, got %q", *progressDescription)
+			}
 			return nil
 		},
 	)
@@ -42,9 +45,9 @@ func TestStubProcessorReportsProgressAndReturnsStructuredFailure(t *testing.T) {
 	}
 
 	expected := []progressUpdate{
-		{stage: jobqueue.StageDownloadingMedia, progress: 6},
-		{stage: jobqueue.StagePostprocessing, progress: 88},
-		{stage: jobqueue.StagePersistingResults, progress: 96},
+		{stage: jobqueue.StageDownloadingMedia, progress: 3},
+		{stage: jobqueue.StagePostprocessing, progress: 95},
+		{stage: jobqueue.StagePersistingResults, progress: 95},
 	}
 
 	if len(updates) != len(expected) {
@@ -65,9 +68,10 @@ func TestStubProcessorRespectsContextCancellation(t *testing.T) {
 	err := processor.Process(
 		ctx,
 		jobqueue.ClaimedJob{ID: "job-2"},
-		func(stage string, progress int) error {
+		func(stage string, progress float64, progressDescription *string) error {
 			_ = stage
 			_ = progress
+			_ = progressDescription
 			return nil
 		},
 	)
