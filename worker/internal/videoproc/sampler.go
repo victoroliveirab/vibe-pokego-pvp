@@ -18,9 +18,16 @@ const (
 
 const DefaultInterval = 300 * time.Millisecond
 
+type ProgressCallback func(completed int, total int) error
+
 // Sampler samples decoded video frames.
 type Sampler interface {
 	SampleFrames(ctx context.Context, filePath string) ([]FrameSample, error)
+}
+
+// ProgressiveSampler reports incremental sampling progress while extracting frames.
+type ProgressiveSampler interface {
+	SampleFramesWithProgress(ctx context.Context, filePath string, onProgress ProgressCallback) ([]FrameSample, error)
 }
 
 type commandRunner interface {
@@ -51,6 +58,15 @@ func NewFFmpegSampler(interval time.Duration) *FFmpegSampler {
 
 // SampleFrames returns sampled frames at the configured cadence.
 func (s *FFmpegSampler) SampleFrames(ctx context.Context, filePath string) ([]FrameSample, error) {
+	return s.SampleFramesWithProgress(ctx, filePath, nil)
+}
+
+// SampleFramesWithProgress returns sampled frames and optionally reports incremental completion.
+func (s *FFmpegSampler) SampleFramesWithProgress(
+	ctx context.Context,
+	filePath string,
+	onProgress ProgressCallback,
+) ([]FrameSample, error) {
 	if strings.TrimSpace(filePath) == "" {
 		return nil, &Error{
 			Code:    ErrorCodeProbeFailed,
@@ -77,6 +93,12 @@ func (s *FFmpegSampler) SampleFrames(ctx context.Context, filePath string) ([]Fr
 	}
 
 	samples := make([]FrameSample, 0, len(timestamps))
+	if onProgress != nil {
+		if err := onProgress(0, len(timestamps)); err != nil {
+			return nil, err
+		}
+	}
+
 	for _, timestampMS := range timestamps {
 		frameImage, err := s.extractFrame(ctx, filePath, timestampMS)
 		if err != nil {
@@ -86,6 +108,11 @@ func (s *FFmpegSampler) SampleFrames(ctx context.Context, filePath string) ([]Fr
 			TimestampMS: timestampMS,
 			Image:       frameImage,
 		})
+		if onProgress != nil {
+			if err := onProgress(len(samples), len(timestamps)); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	return samples, nil

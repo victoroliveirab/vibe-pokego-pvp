@@ -72,6 +72,28 @@ func (s staticVideoSampler) SampleFrames(context.Context, string) ([]videoproc.F
 	return append([]videoproc.FrameSample(nil), s.samples...), nil
 }
 
+func (s staticVideoSampler) SampleFramesWithProgress(
+	ctx context.Context,
+	filePath string,
+	onProgress videoproc.ProgressCallback,
+) ([]videoproc.FrameSample, error) {
+	samples, err := s.SampleFrames(ctx, filePath)
+	if err != nil {
+		return nil, err
+	}
+	if onProgress != nil {
+		if err := onProgress(0, len(samples)); err != nil {
+			return nil, err
+		}
+		for idx := range samples {
+			if err := onProgress(idx+1, len(samples)); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return samples, nil
+}
+
 func TestImageProcessorReportsStagesAndPersistsSpeciesCandidate(t *testing.T) {
 	tempDir := t.TempDir()
 	databasePath := filepath.Join(tempDir, "worker.db")
@@ -394,6 +416,7 @@ func TestImageProcessorVideoPathReportsStagesAndPersistsFrameTimestamps(t *testi
 	expected := []progressUpdate{
 		{stage: jobqueue.StageDownloadingMedia, progress: videoProgressDownloadingMedia},
 		{stage: jobqueue.StageDecodingVideo, progress: videoProgressDecoding},
+		{stage: jobqueue.StageSamplingFrames, progress: 5, description: progressDescriptionSampling(0, 4)},
 		{stage: jobqueue.StageSamplingFrames, progress: 16.25, description: progressDescriptionSampling(1, 4)},
 		{stage: jobqueue.StageSamplingFrames, progress: 27.5, description: progressDescriptionSampling(2, 4)},
 		{stage: jobqueue.StageSamplingFrames, progress: 38.75, description: progressDescriptionSampling(3, 4)},
@@ -644,6 +667,143 @@ func TestImageProcessorVideoPathAllUnstableFramesPersistNoCandidates(t *testing.
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("expected unstable debug rows iteration to succeed: %v", err)
+	}
+}
+
+func TestImageProcessorVideoPathZeroSamplesReportsSamplingAndExtractingDescriptions(t *testing.T) {
+	tempDir := t.TempDir()
+	databasePath := filepath.Join(tempDir, "worker.db")
+	uploadDir := filepath.Join(tempDir, "uploads")
+	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
+		t.Fatalf("expected upload directory to be created: %v", err)
+	}
+
+	videoPath := filepath.Join(uploadDir, "test-empty.mp4")
+	if err := os.WriteFile(videoPath, []byte("video-fixture-placeholder"), 0o644); err != nil {
+		t.Fatalf("expected video fixture placeholder to be created: %v", err)
+	}
+
+	db := newTestDB(t, databasePath)
+	seedUploadAndJob(
+		t,
+		db,
+		"upload-video-empty",
+		"job-video-empty",
+		"session-video-empty",
+		"video",
+		"local://uploads/test-empty.mp4",
+		time.Date(2026, time.March, 5, 12, 10, 0, 0, time.UTC),
+	)
+
+	type progressUpdate struct {
+		stage       string
+		progress    float64
+		description *string
+	}
+	var updates []progressUpdate
+
+	processor := newImageProcessor(
+		databasePath,
+		config.StorageConfig{Mode: config.UploadStorageModeLocal, LocalDir: uploadDir},
+		0,
+		ocr.NewNoopEngine(),
+		mustLoadTestSpeciesCatalog(t),
+		staticVideoSampler{samples: nil},
+	)
+
+	err := processor.Process(
+		context.Background(),
+		jobqueue.ClaimedJob{
+			ID:        "job-video-empty",
+			UploadID:  "upload-video-empty",
+			SessionID: "session-video-empty",
+		},
+		func(stage string, progress float64, progressDescription *string) error {
+			updates = append(updates, progressUpdate{stage: stage, progress: progress, description: progressDescription})
+			return nil
+		},
+	)
+	assertNoAppraisalsProcessingError(t, err)
+
+	expected := []progressUpdate{
+		{stage: jobqueue.StageDownloadingMedia, progress: videoProgressDownloadingMedia},
+		{stage: jobqueue.StageDecodingVideo, progress: videoProgressDecoding},
+		{stage: jobqueue.StageSamplingFrames, progress: videoProgressSamplingEnd, description: progressDescriptionSampling(0, 0)},
+		{stage: jobqueue.StageSamplingFrames, progress: videoProgressSamplingEnd, description: progressDescriptionSampling(0, 0)},
+		{stage: jobqueue.StageExtractingAppraisal, progress: videoProgressExtractingEnd, description: progressDescriptionExtracting(0, 0)},
+		{stage: jobqueue.StagePostprocessing, progress: videoProgressPostprocessing},
+		{stage: jobqueue.StagePersistingResults, progress: videoProgressPersisting},
+	}
+
+	if len(updates) != len(expected) {
+		t.Fatalf("expected %d progress updates, got %d", len(expected), len(updates))
+	}
+	for i := range expected {
+		if updates[i].stage != expected[i].stage || updates[i].progress != expected[i].progress {
+			t.Fatalf("expected update %d to be %#v, got %#v", i, expected[i], updates[i])
+		}
+		if derefStringPtr(updates[i].description) != derefStringPtr(expected[i].description) {
+			t.Fatalf("expected update %d description %q, got %q", i, derefStringPtr(expected[i].description), derefStringPtr(updates[i].description))
+		}
+	}
+}
+
+func TestImageProcessorVideoProgressReportingErrorIsNotRewrappedAsDecodeFailure(t *testing.T) {
+	tempDir := t.TempDir()
+	databasePath := filepath.Join(tempDir, "worker.db")
+	uploadDir := filepath.Join(tempDir, "uploads")
+	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
+		t.Fatalf("expected upload directory to be created: %v", err)
+	}
+
+	videoPath := filepath.Join(uploadDir, "test-reporting.mp4")
+	if err := os.WriteFile(videoPath, []byte("video-fixture-placeholder"), 0o644); err != nil {
+		t.Fatalf("expected video fixture placeholder to be created: %v", err)
+	}
+
+	db := newTestDB(t, databasePath)
+	seedUploadAndJob(
+		t,
+		db,
+		"upload-video-reporting",
+		"job-video-reporting",
+		"session-video-reporting",
+		"video",
+		"local://uploads/test-reporting.mp4",
+		time.Date(2026, time.March, 5, 12, 15, 0, 0, time.UTC),
+	)
+
+	processor := newImageProcessor(
+		databasePath,
+		config.StorageConfig{Mode: config.UploadStorageModeLocal, LocalDir: uploadDir},
+		0,
+		ocr.NewNoopEngine(),
+		mustLoadTestSpeciesCatalog(t),
+		staticVideoSampler{
+			samples: []videoproc.FrameSample{
+				{TimestampMS: 0, Image: syntheticVideoFrameImage()},
+			},
+		},
+	)
+
+	reportErr := fmt.Errorf("update job progress: %w", errOwnershipLost)
+	err := processor.Process(
+		context.Background(),
+		jobqueue.ClaimedJob{
+			ID:        "job-video-reporting",
+			UploadID:  "upload-video-reporting",
+			SessionID: "session-video-reporting",
+		},
+		func(stage string, progress float64, progressDescription *string) error {
+			if stage == jobqueue.StageSamplingFrames && progressDescription != nil {
+				return reportErr
+			}
+			return nil
+		},
+	)
+
+	if !errors.Is(err, errOwnershipLost) {
+		t.Fatalf("expected ownership error to be preserved, got %v", err)
 	}
 }
 

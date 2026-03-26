@@ -349,6 +349,21 @@ func progressDescriptionExtracting(completed int, total int) *string {
 	return &value
 }
 
+func isProgressReportingError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, errOwnershipLost) {
+		return true
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	return strings.Contains(err.Error(), "update job progress:")
+}
+
 type processedFrame struct {
 	parsed                   appraisal.ParsedCandidate
 	rawOCRText               string
@@ -561,8 +576,29 @@ func (p imageProcessor) processVideo(
 
 	logger.Info("video resolved for processing", "path", localPath)
 
-	samples, err := p.videoSampler.SampleFrames(ctx, localPath)
+	progressiveSampler, ok := p.videoSampler.(videoproc.ProgressiveSampler)
+	var samples []videoproc.FrameSample
+	if ok {
+		samples, err = progressiveSampler.SampleFramesWithProgress(
+			ctx,
+			localPath,
+			func(completed int, total int) error {
+				return p.reportStageWithDescription(
+					ctx,
+					reportProgress,
+					jobqueue.StageSamplingFrames,
+					progressForCompletedFrames(videoProgressSamplingStart, videoProgressSamplingEnd, completed, total),
+					progressDescriptionSampling(completed, total),
+				)
+			},
+		)
+	} else {
+		samples, err = p.videoSampler.SampleFrames(ctx, localPath)
+	}
 	if err != nil {
+		if isProgressReportingError(err) {
+			return err
+		}
 		return ProcessingError{
 			Code:    "DECODE_FAILED",
 			Message: err.Error(),
@@ -602,7 +638,7 @@ func (p imageProcessor) processVideo(
 		); err != nil {
 			return err
 		}
-	} else {
+	} else if !ok {
 		for idx := range samples {
 			if err := p.reportStageWithDescription(
 				ctx,
