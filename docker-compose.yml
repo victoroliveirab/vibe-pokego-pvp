@@ -65,12 +65,14 @@ services:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
         VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:-}
         VITE_CLERK_PROXY_URL: ${CLERK_PROXY_URL:-}
+        VITE_DEPLOYED_AT_ISO: ${VITE_DEPLOYED_AT_ISO:-1970-01-01T00:00:00Z}
     restart: unless-stopped
     env_file:
       - .env
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "100"
+      VITE_DEPLOYED_AT_ISO: ${VITE_DEPLOYED_AT_ISO:-}
     ports:
       - "${FRONTEND_PORT:-4173}:5173"
     command: ["npm", "run", "dev", "--", "--host", "--port", "5173"]
