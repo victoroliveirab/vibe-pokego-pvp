@@ -125,6 +125,7 @@ Use `.env.example` as your base. Key variables:
 - `UPLOAD_STORAGE_MODE=local` for local development
 - `UPLOAD_LOCAL_DIR=./testdata/uploads`
 - `VITE_CLERK_PUBLISHABLE_KEY` for Clerk frontend UI
+- `VITE_DEPLOYED_AT_ISO` for production frontend image builds so the app footer can show when that image was deployed
 - `CLERK_ENABLED=true` to enable Clerk bearer-token auth in the web API
 - `CLERK_SECRET_KEY` when Clerk auth is enabled
 - `CLERK_AUTHORIZED_PARTIES=http://127.0.0.1:4173,http://localhost:4173` for local Clerk token validation

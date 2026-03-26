@@ -5,6 +5,7 @@ import {
   UserButton,
 } from "@clerk/react";
 import { NavLink, Outlet } from "react-router-dom";
+import { getDeployedAtISO } from "../lib/build-info";
 
 function navLinkClassName({ isActive }) {
   return [
@@ -24,8 +25,10 @@ function authButtonClassName(kind) {
 }
 
 export default function AppShell() {
+  const deployedAtISO = getDeployedAtISO();
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
+    <div className="flex min-h-screen flex-col bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
       <header className="border-b border-slate-800/80 bg-slate-950/80 backdrop-blur">
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-4 sm:px-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -69,7 +72,17 @@ export default function AppShell() {
         </div>
       </header>
 
-      <Outlet />
+      <main className="flex-1">
+        <Outlet />
+      </main>
+
+      {deployedAtISO ? (
+        <footer className="border-t border-slate-800/80 bg-slate-950/70">
+          <div className="mx-auto w-full max-w-5xl px-4 py-3 text-xs text-slate-400 sm:px-6">
+            Deployed: <span className="font-mono text-slate-300">{deployedAtISO}</span>
+          </div>
+        </footer>
+      ) : null}
     </div>
   );
 }

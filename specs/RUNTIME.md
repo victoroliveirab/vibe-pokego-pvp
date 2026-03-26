@@ -7,6 +7,7 @@ This document defines runtime environment variables used by the local stack and 
 - `APP_ENV`: runtime environment name (`local` for local stack).
 - `WEB_PORT`: web API listen port.
 - `FRONTEND_PORT`: host port mapped to the frontend container.
+- `VITE_DEPLOYED_AT_ISO`: ISO-8601 deployment timestamp baked into production frontend image builds and displayed in the shared footer.
 - `WORKER_POLL_INTERVAL_SECS`: worker queue poll interval in seconds.
 - `WORKER_HEALTH_PORT`: worker health endpoint listen port.
 - `UPLOAD_STORAGE_MODE`: `local` or `uploadthing`.
@@ -26,6 +27,7 @@ This document defines runtime environment variables used by the local stack and 
 - `CLERK_JWKS_URL` is optional and, when set, must be a valid URL.
 - `CLERK_FRONTEND_API_URL` is optional and defaults to `https://frontend-api.clerk.dev` when proxying is enabled.
 - `VITE_CLERK_PUBLISHABLE_KEY` is required by the frontend runtime even though it is consumed outside the Go service.
+- `VITE_DEPLOYED_AT_ISO` is required for production-style frontend image builds and should be set to the deployment timestamp in ISO-8601 format.
 
 ## Database Variable Matrix
 
