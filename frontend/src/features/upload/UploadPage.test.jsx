@@ -911,6 +911,83 @@ describe("upload page job monitoring", () => {
     });
   });
 
+  it("refreshes pending species readings when dismiss returns reading locked", async () => {
+    const pendingReading = {
+      id: "reading-1",
+      jobId: "job-1",
+      uploadId: "upload-1",
+      cp: 712,
+      hp: 120,
+      ivs: {
+        attack: 10,
+        defense: 11,
+        stamina: 12,
+      },
+      level: {
+        estimate: 23.5,
+        confidence: 0.72,
+        method: "ARC_POSITION",
+      },
+      source: {
+        type: "VIDEO",
+        frameTimestampMs: 300,
+      },
+      confidence: 0.86,
+      status: "PENDING_USER_DEDUP",
+      createdAt: "2026-03-06T17:00:00Z",
+      options: [
+        {
+          id: "option-1",
+          speciesName: "Darumaka",
+          matchMode: "exact",
+          matchDistance: 0,
+          optionRank: 1,
+        },
+      ],
+    };
+
+    const pokemonResultsApi = createPokemonResultsApi({
+      getPokemonResults: vi.fn().mockResolvedValue({ results: [] }),
+    });
+    pokemonResultsApi.getPendingSpeciesReadings = vi
+      .fn()
+      .mockResolvedValueOnce({ readings: [pendingReading] })
+      .mockResolvedValueOnce({ readings: [] });
+    pokemonResultsApi.dismissPendingSpeciesReading = vi.fn().mockRejectedValue({
+      code: "READING_LOCKED",
+      message: "Pending reading already resolved",
+    });
+
+    render(
+      <UploadPage
+        jobApi={{ getJobStatus: vi.fn() }}
+        pokemonResultsApi={pokemonResultsApi}
+        uploadApi={{ submitUpload: vi.fn() }}
+        useSessionHook={createSessionHook()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Pending Species Confirmation")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Dismiss pending reading reading-1" })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss pending reading reading-1" }));
+
+    await waitFor(() => {
+      expect(pokemonResultsApi.dismissPendingSpeciesReading).toHaveBeenCalledWith({
+        sessionId: "session-1",
+        readingId: "reading-1",
+      });
+    });
+
+    await waitFor(() => {
+      expect(pokemonResultsApi.getPendingSpeciesReadings).toHaveBeenCalledTimes(2);
+      expect(screen.queryByText("Pending Species Confirmation")).toBeNull();
+      expect(screen.queryByText("Pending reading already resolved")).toBeNull();
+    });
+  });
+
   it("soft deletes an accepted result and refetches results", async () => {
     const pokemonResultsApi = createPokemonResultsApi({
       getPokemonResults: vi

@@ -1273,10 +1273,8 @@ func (s *sqliteStore) ResolvePendingReading(ctx context.Context, params ResolveP
 	const queryPendingReading = `
 SELECT r.id, r.job_id, r.upload_id, r.session_id, r.cp, r.hp, r.iv_attack, r.iv_defense, r.iv_stamina,
        r.level_estimate, r.level_confidence, r.level_method, r.source_type, r.frame_timestamp_ms,
-       r.extraction_confidence, r.status, r.locked, r.selected_species_name, r.resolved_at, r.created_at,
-       j.status
+       r.extraction_confidence, r.status, r.locked, r.selected_species_name, r.resolved_at, r.created_at
 FROM appraisal_pending_readings r
-JOIN jobs j ON j.id = r.job_id
 WHERE r.id = ? AND r.session_id = ?;`
 
 	var reading PendingSpeciesReadingRecord
@@ -1287,7 +1285,6 @@ WHERE r.id = ? AND r.session_id = ?;`
 	var selectedSpeciesName sql.NullString
 	var resolvedAtRaw sql.NullString
 	var createdAtRaw string
-	var jobStatus string
 	var lockedRaw int
 
 	if err := tx.QueryRowContext(ctx, queryPendingReading, readingID, ownerKey).Scan(
@@ -1311,7 +1308,6 @@ WHERE r.id = ? AND r.session_id = ?;`
 		&selectedSpeciesName,
 		&resolvedAtRaw,
 		&createdAtRaw,
-		&jobStatus,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return PokemonResultRecord{}, ErrPendingReadingNotFound
@@ -1339,7 +1335,7 @@ WHERE r.id = ? AND r.session_id = ?;`
 		reading.ResolvedAt = &resolvedAt
 	}
 
-	if reading.Locked || reading.Status != JobStatusPendingUserDedup || jobStatus != JobStatusPendingUserDedup {
+	if reading.Locked || reading.Status != JobStatusPendingUserDedup {
 		return PokemonResultRecord{}, ErrPendingReadingLocked
 	}
 
@@ -1379,33 +1375,6 @@ WHERE id = ? AND session_id = ? AND status = ? AND locked = 0;`
 	updatedRows, err := result.RowsAffected()
 	if err != nil {
 		return PokemonResultRecord{}, fmt.Errorf("read pending reading rows affected: %w", err)
-	}
-	if updatedRows != 1 {
-		return PokemonResultRecord{}, ErrPendingReadingLocked
-	}
-
-	const updateJobStatus = `
-UPDATE jobs
-SET status = ?, progress = 100, stage = NULL, error_code = NULL, error_message = NULL, updated_at = ?, finished_at = ?
-WHERE id = ? AND session_id = ? AND status = ?;`
-
-	result, err = tx.ExecContext(
-		ctx,
-		updateJobStatus,
-		JobStatusSucceeded,
-		nowRaw,
-		nowRaw,
-		reading.JobID,
-		ownerKey,
-		JobStatusPendingUserDedup,
-	)
-	if err != nil {
-		return PokemonResultRecord{}, fmt.Errorf("update job status to succeeded from pending: %w", err)
-	}
-
-	updatedRows, err = result.RowsAffected()
-	if err != nil {
-		return PokemonResultRecord{}, fmt.Errorf("read job rows affected: %w", err)
 	}
 	if updatedRows != 1 {
 		return PokemonResultRecord{}, ErrPendingReadingLocked
@@ -1472,6 +1441,10 @@ INSERT OR IGNORE INTO appraisal_result_pvp_eval_queue(
 		return PokemonResultRecord{}, fmt.Errorf("insert pvp evaluation queue row: %w", err)
 	}
 
+	if err := syncPendingReadingJobStatus(ctx, tx, reading.JobID, ownerKey, nowRaw); err != nil {
+		return PokemonResultRecord{}, err
+	}
+
 	if err := tx.Commit(); err != nil {
 		return PokemonResultRecord{}, fmt.Errorf("commit resolve pending tx: %w", err)
 	}
@@ -1524,18 +1497,15 @@ func (s *sqliteStore) DismissPendingReading(ctx context.Context, params DismissP
 	defer tx.Rollback()
 
 	const queryPendingReading = `
-SELECT r.locked, r.status, j.status
+SELECT r.locked, r.status
 FROM appraisal_pending_readings r
-JOIN jobs j ON j.id = r.job_id
 WHERE r.id = ? AND r.session_id = ?;`
 
 	var lockedRaw int
 	var readingStatus string
-	var jobStatus string
 	if err := tx.QueryRowContext(ctx, queryPendingReading, readingID, ownerKey).Scan(
 		&lockedRaw,
 		&readingStatus,
-		&jobStatus,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrPendingReadingNotFound
@@ -1544,7 +1514,7 @@ WHERE r.id = ? AND r.session_id = ?;`
 		return fmt.Errorf("query pending reading for dismiss: %w", err)
 	}
 
-	if lockedRaw == 1 || readingStatus != JobStatusPendingUserDedup || jobStatus != JobStatusPendingUserDedup {
+	if lockedRaw == 1 || readingStatus != JobStatusPendingUserDedup {
 		return ErrPendingReadingLocked
 	}
 
@@ -1574,35 +1544,77 @@ WHERE id = ? AND session_id = ? AND status = ? AND locked = 0;`
 		return ErrPendingReadingLocked
 	}
 
-	const updateJobStatus = `
-UPDATE jobs
-SET status = ?, progress = 100, stage = NULL, error_code = NULL, error_message = NULL, updated_at = ?, finished_at = ?
-WHERE id = (SELECT job_id FROM appraisal_pending_readings WHERE id = ?) AND session_id = ? AND status = ?;`
-
-	result, err = tx.ExecContext(
+	var jobID string
+	if err := tx.QueryRowContext(
 		ctx,
-		updateJobStatus,
-		JobStatusSucceeded,
-		nowRaw,
-		nowRaw,
+		`SELECT job_id FROM appraisal_pending_readings WHERE id = ? AND session_id = ?;`,
 		readingID,
 		ownerKey,
-		JobStatusPendingUserDedup,
-	)
-	if err != nil {
-		return fmt.Errorf("update job status to succeeded from pending dismiss: %w", err)
+	).Scan(&jobID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPendingReadingNotFound
+		}
+		return fmt.Errorf("query dismissed pending reading job id: %w", err)
 	}
 
-	updatedRows, err = result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("read dismissed job rows affected: %w", err)
-	}
-	if updatedRows != 1 {
-		return ErrPendingReadingLocked
+	if err := syncPendingReadingJobStatus(ctx, tx, jobID, ownerKey, nowRaw); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit dismiss pending tx: %w", err)
+	}
+
+	return nil
+}
+
+func syncPendingReadingJobStatus(ctx context.Context, tx *sql.Tx, jobID, ownerKey, nowRaw string) error {
+	const countRemainingPendingReadings = `
+SELECT COUNT(*)
+FROM appraisal_pending_readings
+WHERE job_id = ? AND session_id = ? AND status = ? AND locked = 0;`
+
+	var remainingPendingReadings int
+	if err := tx.QueryRowContext(
+		ctx,
+		countRemainingPendingReadings,
+		jobID,
+		ownerKey,
+		JobStatusPendingUserDedup,
+	).Scan(&remainingPendingReadings); err != nil {
+		return fmt.Errorf("count remaining pending readings: %w", err)
+	}
+
+	nextJobStatus := JobStatusSucceeded
+	if remainingPendingReadings > 0 {
+		nextJobStatus = JobStatusPendingUserDedup
+	}
+
+	const updateJobStatus = `
+UPDATE jobs
+SET status = ?, progress = 100, stage = NULL, error_code = NULL, error_message = NULL, updated_at = ?,
+    finished_at = CASE WHEN finished_at IS NULL THEN ? ELSE finished_at END
+WHERE id = ? AND session_id = ?;`
+
+	result, err := tx.ExecContext(
+		ctx,
+		updateJobStatus,
+		nextJobStatus,
+		nowRaw,
+		nowRaw,
+		jobID,
+		ownerKey,
+	)
+	if err != nil {
+		return fmt.Errorf("sync pending reading job status: %w", err)
+	}
+
+	updatedRows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read synced job rows affected: %w", err)
+	}
+	if updatedRows != 1 {
+		return ErrPendingReadingNotFound
 	}
 
 	return nil

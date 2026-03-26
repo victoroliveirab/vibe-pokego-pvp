@@ -55,6 +55,10 @@ function normalizePokemonResultsError(error) {
   };
 }
 
+function isPendingReadingAlreadyResolved(error) {
+  return Boolean(error && typeof error === "object" && error.code === "READING_LOCKED");
+}
+
 export default function UploadPage({
   uploadApi: injectedUploadApi = null,
   jobApi: injectedJobApi = null,
@@ -544,6 +548,14 @@ export default function UploadPage({
           sessionId: normalizedSessionID,
         });
       } catch (error) {
+        if (isPendingReadingAlreadyResolved(error)) {
+          setPendingResolveError(null);
+          await refreshPokemonResults({
+            sessionId: normalizedSessionID,
+          });
+          return;
+        }
+
         setPendingResolveError(normalizePokemonResultsError(error));
       } finally {
         setResolvingReadingIds((current) => current.filter((id) => id !== normalizedReadingID));
@@ -588,6 +600,14 @@ export default function UploadPage({
           sessionId: normalizedSessionID,
         });
       } catch (error) {
+        if (isPendingReadingAlreadyResolved(error)) {
+          setPendingResolveError(null);
+          await refreshPokemonResults({
+            sessionId: normalizedSessionID,
+          });
+          return;
+        }
+
         setPendingResolveError(normalizePokemonResultsError(error));
       } finally {
         setResolvingReadingIds((current) => current.filter((id) => id !== normalizedReadingID));
