@@ -597,8 +597,8 @@ export default function AllPokemonPage({
                             tier={row.bestTier}
                           />
                         </div>
-                        <p className="mt-1 text-sm text-slate-300">
-                          {`IV ${formatCompactIVs(result.ivs)} / LVL ${formatCompactLevel(result.level)} / ${bestLeagueLabel} ${formatCompactPercentage(
+                        <p className="mt-1 text-xs text-slate-300 sm:text-sm">
+                          {`CP ${formatOptionalNumber(result.cp)} / IV ${formatCompactIVs(result.ivs)} / LVL ${formatCompactLevel(result.level)} / ${bestLeagueLabel} ${formatCompactPercentage(
                             row.bestLeagueEntry?.percentage,
                           )}`}
                         </p>

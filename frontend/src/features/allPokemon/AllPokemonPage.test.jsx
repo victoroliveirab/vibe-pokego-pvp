@@ -186,7 +186,7 @@ describe("all pokemon page", () => {
     const row = screen.getByText("Bulbasaur").closest("[data-testid='scan-row']");
     expect(row).toBeTruthy();
     expect(within(row).getByLabelText("Best Great tier for Bulbasaur: A")).toBeTruthy();
-    expect(within(row).getByText("IV 12-12-12 / LVL 10.0 / Little 92.1%")).toBeTruthy();
+    expect(within(row).getByText("CP 300 / IV 12-12-12 / LVL 10.0 / Little 92.1%")).toBeTruthy();
 
     fireEvent.click(within(row).getByRole("button", { name: "Show Great details" }));
     expect(within(row).getByText(/Bulba Great/i)).toBeTruthy();
@@ -310,7 +310,7 @@ describe("all pokemon page", () => {
 
     const row = screen.getByText("Horsea").closest("[data-testid='scan-row']");
     expect(row).toBeTruthy();
-    expect(within(row).getByText("IV 0-15-8 / LVL 13.0 / Great 98.5%")).toBeTruthy();
+    expect(within(row).getByText("CP 300 / IV 0-15-8 / LVL 13.0 / Great 98.5%")).toBeTruthy();
   });
 
   it("keeps debug details hidden by default and reveals them when debug mode is enabled", async () => {
